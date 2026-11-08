@@ -46,7 +46,7 @@ struct HomeDestinationView: View {
                 )
                 rule(
                     title: "Make the math work",
-                    text: "The numbers in a cage must combine with that operation to hit the target. A label with no operation is a single cell fixed to that number."
+                    text: "The numbers in a cage must combine with that operation to hit the target. A one-cell cage is already filled with its number."
                 )
                 rule(
                     title: "Order is free",
@@ -54,7 +54,7 @@ struct HomeDestinationView: View {
                 )
                 rule(
                     title: "No-op mode",
-                    text: "Settings can hide the operation. The target still has to be reachable by one of the operations you left on."
+                    text: "Settings can hide the operation symbol. The puzzle is the same; only the symbol is missing."
                 )
             }
             .padding(24)

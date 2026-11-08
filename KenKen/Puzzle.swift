@@ -29,27 +29,43 @@ nonisolated enum Difficulty: String, CaseIterable, Identifiable, Sendable {
 
     var detail: String {
         switch self {
-        case .easy: "Small cages, mostly sums and products"
-        case .medium: "A mix of cage sizes and operations"
-        case .hard: "Mostly pairs, with subtraction and division"
+        case .easy: "Straight cages of 2 or 3 cells"
+        case .medium: "Mostly 3-cell cages, up to 4, with a few bends"
+        case .hard: "A mix of 2 to 4 cells, plus zigzag cages of 5"
         }
     }
 
-    /// Largest cage the generator will grow for this difficulty.
+    /// Largest cage the generator will place for this difficulty.
     var maxCageSize: Int {
         switch self {
-        case .easy: 2
-        case .medium: 3
-        case .hard: 2
+        case .easy: 3
+        case .medium: 4
+        case .hard: 5
         }
     }
 
-    /// Out of ten new cages, how many are forced to a single cell.
-    var singleBias: Int {
+    /// How often a cage of this size is chosen. The middle of the allowed range is the most common.
+    func cageWeight(for size: Int) -> Int {
+        switch (self, size) {
+        case (.easy, 2), (.easy, 3): 3
+        case (.medium, 2): 2
+        case (.medium, 3): 4
+        case (.medium, 4): 2
+        case (.hard, 2): 2
+        case (.hard, 3): 4
+        case (.hard, 4): 3
+        case (.hard, 5): 1
+        default: 0
+        }
+    }
+
+    /// Out of ten cages of this size, how many must bend. Easy stays straight. A hard cage of 5 always bends.
+    func bendChance(for size: Int) -> Int {
+        guard size >= 3 else { return 0 }
         switch self {
-        case .easy: 2
-        case .medium: 1
-        case .hard: 0
+        case .easy: return 0
+        case .medium: return 3
+        case .hard: return size >= 5 ? 10 : 6
         }
     }
 }
@@ -287,7 +303,7 @@ nonisolated enum KenKenRules {
                 values.append(value)
             }
             guard values.count == cage.cells.count else { continue }
-            if !cageIsSatisfied(values: values, cage: cage, rules: puzzle.rules) {
+            if !cageIsSatisfied(values: values, cage: cage) {
                 brokenCageIDs.insert(cage.id)
             }
         }
@@ -301,15 +317,9 @@ nonisolated enum KenKenRules {
         )
     }
 
-    /// No-op mode accepts any selected operation that produces the target.
-    static func cageIsSatisfied(values: [Int], cage: Cage, rules: OperatorRules) -> Bool {
+    static func cageIsSatisfied(values: [Int], cage: Cage) -> Bool {
         if cage.operation == nil || values.count <= 1 {
             return values.count == 1 && values.first == cage.target
-        }
-        if rules.hidesOperators {
-            return rules.operations(forCellCount: values.count).contains { operation in
-                isSatisfied(values: values, operation: operation, target: cage.target)
-            }
         }
         return isSatisfied(values: values, operation: cage.operation, target: cage.target)
     }

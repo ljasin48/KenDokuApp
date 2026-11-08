@@ -614,6 +614,7 @@ private struct KenKenBoard: View {
         } label: {
             GeometryReader { geo in
                 cellFace(index, side: min(geo.size.width, geo.size.height))
+                    .frame(width: geo.size.width, height: geo.size.height)
             }
             .background(fill(index))
             .contentShape(Rectangle())
@@ -680,27 +681,28 @@ private struct KenKenBoard: View {
         let value = entries[cell.row][cell.column]
         let given = puzzle.isGiven(cell)
         let clue = given ? nil : puzzle.clues[cell]
-        return ZStack(alignment: .topLeading) {
-            if let value {
-                Text("\(value)")
-                    .font(.system(size: side * 0.42, weight: given ? .bold : .medium, design: .rounded))
-                    .foregroundStyle(isConflict(cell) ? Self.conflict : (given ? theme.clue : theme.boardLine))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .offset(y: clue == nil ? 0 : side * 0.05)
-            } else if !notes[cell.row][cell.column].isEmpty {
-                noteGrid(notes[cell.row][cell.column], side: side, hasClue: clue != nil)
+        // The clue is its own overlay. Sharing a stack with the digit let the corner label shift the number down.
+        return Color.clear
+            .overlay {
+                if let value {
+                    Text("\(value)")
+                        .font(.system(size: side * 0.42, weight: given ? .bold : .medium, design: .rounded))
+                        .foregroundStyle(isConflict(cell) ? Self.conflict : theme.boardLine)
+                } else if !notes[cell.row][cell.column].isEmpty {
+                    noteGrid(notes[cell.row][cell.column], side: side, hasClue: clue != nil)
+                }
             }
-
-            if let clue {
-                Text(clue)
-                    .font(.system(size: max(9, side * 0.2), weight: .bold, design: .rounded))
-                    .foregroundStyle(theme.clue)
-                    .minimumScaleFactor(0.5)
-                    .lineLimit(1)
-                    .padding(.leading, side * 0.07)
-                    .padding(.top, side * 0.04)
+            .overlay(alignment: .topLeading) {
+                if let clue {
+                    Text(clue)
+                        .font(.system(size: max(9, side * 0.2), weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.clue)
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
+                        .padding(.leading, side * 0.07)
+                        .padding(.top, side * 0.04)
+                }
             }
-        }
     }
 
     private func noteGrid(_ marks: Set<Int>, side: CGFloat, hasClue: Bool) -> some View {

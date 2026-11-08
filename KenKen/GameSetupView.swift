@@ -79,7 +79,7 @@ struct OperatorRulesEditor: View {
             Toggle(isOn: $hideOperators) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("No-op mode")
-                    Text("Hide the operation. A cage is correct when any selected operation hits the target.")
+                    Text("Hide the operation symbol. The puzzle itself stays the same.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
