@@ -25,20 +25,30 @@ nonisolated struct SplitMix64: RandomNumberGenerator, Sendable {
 }
 
 nonisolated enum KenKenGenerator {
-    static func generate(size: Int, difficulty: Difficulty, seed: UInt64? = nil) -> Puzzle {
+    static func generate(
+        size: Int,
+        difficulty: Difficulty,
+        seed: UInt64? = nil,
+        rules: OperatorRules = .standard
+    ) -> Puzzle {
+        let rules = rules.normalized
         if let seed {
             var generator = SplitMix64(state: seed)
-            return generate(size: size, difficulty: difficulty, rng: &generator)
+            return generate(size: size, difficulty: difficulty, rules: rules, rng: &generator)
         }
         var generator = SystemRandomNumberGenerator()
-        return generate(size: size, difficulty: difficulty, rng: &generator)
+        return generate(size: size, difficulty: difficulty, rules: rules, rng: &generator)
     }
 
     static func generate<R: RandomNumberGenerator>(
         size: Int,
         difficulty: Difficulty,
+        rules: OperatorRules = .standard,
         rng: inout R
     ) -> Puzzle {
+        let rules = rules.normalized
+        // Hidden operators make each target easier to satisfy, so keep cages smaller.
+        let pairOnly = rules.hidesOperators || rules.operations(forCellCount: 3).isEmpty
         let profiles: [(maxSize: Int, singleBias: Int)] = [
             (difficulty.maxCageSize, difficulty.singleBias),
             (min(difficulty.maxCageSize, 2), difficulty.singleBias + 2),
@@ -46,16 +56,19 @@ nonisolated enum KenKenGenerator {
         ]
 
         for profile in profiles {
+            let maxSize = pairOnly ? min(profile.maxSize, 2) : profile.maxSize
+            let singleBias = profile.singleBias + (rules.hidesOperators ? 3 : 0)
             for _ in 0..<16 {
                 let solution = latinSquare(size: size, rng: &rng)
                 let cages = cages(
                     from: solution,
-                    maxSize: profile.maxSize,
-                    singleBias: profile.singleBias,
+                    maxSize: maxSize,
+                    singleBias: singleBias,
                     difficulty: difficulty,
+                    rules: rules,
                     rng: &rng
                 )
-                let puzzle = Puzzle(size: size, cages: cages, solution: solution)
+                let puzzle = Puzzle(size: size, cages: cages, solution: solution, rules: rules)
                 guard KenKenRules.solutionIsValid(puzzle) else { continue }
 
                 // Stop after a second solution. A unique board is the one we built.
@@ -66,7 +79,7 @@ nonisolated enum KenKenGenerator {
             }
         }
 
-        return revealedPuzzle(size: size, rng: &rng)
+        return revealedPuzzle(size: size, rules: rules, rng: &rng)
     }
 
     private static func latinSquare<R: RandomNumberGenerator>(size: Int, rng: inout R) -> [[Int]] {
@@ -87,6 +100,7 @@ nonisolated enum KenKenGenerator {
         maxSize: Int,
         singleBias: Int,
         difficulty: Difficulty,
+        rules: OperatorRules,
         rng: inout R
     ) -> [Cage] {
         let size = solution.count
@@ -109,8 +123,15 @@ nonisolated enum KenKenGenerator {
                 free.removeAll { $0 == pick }
             }
 
-            built.append(
-                makeCage(id: built.count, cells: cells, solution: solution, difficulty: difficulty, rng: &rng)
+            built.append(contentsOf:
+                makeCages(
+                    startingID: built.count,
+                    cells: cells,
+                    solution: solution,
+                    difficulty: difficulty,
+                    rules: rules,
+                    rng: &rng
+                )
             )
         }
 
@@ -133,40 +154,60 @@ nonisolated enum KenKenGenerator {
         return adjacent
     }
 
-    private static func makeCage<R: RandomNumberGenerator>(
-        id: Int,
+    private static func makeCages<R: RandomNumberGenerator>(
+        startingID: Int,
         cells: [CellIndex],
         solution: [[Int]],
         difficulty: Difficulty,
+        rules: OperatorRules,
         rng: inout R
-    ) -> Cage {
+    ) -> [Cage] {
         let values = cells.map { solution[$0.row][$0.column] }
         if values.count == 1 {
-            return Cage(id: id, cells: cells, operation: nil, target: values[0])
+            return [Cage(id: startingID, cells: cells, operation: nil, target: values[0])]
         }
 
-        var options: [(CageOperation, Int)] = [
-            (.add, values.reduce(0, +)),
-            (.multiply, values.reduce(1, *))
-        ]
+        var options: [(CageOperation, Int)] = []
+        let allowed = rules.operations(forCellCount: values.count)
+        if allowed.contains(.add) {
+            options.append((.add, values.reduce(0, +)))
+        }
+        if allowed.contains(.multiply) {
+            options.append((.multiply, values.reduce(1, *)))
+        }
         if values.count == 2 {
-            options.append((.subtract, abs(values[0] - values[1])))
+            if allowed.contains(.subtract) {
+                options.append((.subtract, abs(values[0] - values[1])))
+            }
             let high = max(values[0], values[1])
             let low = min(values[0], values[1])
-            if low > 0 && high % low == 0 {
+            if allowed.contains(.divide), low > 0, high % low == 0 {
                 options.append((.divide, high / low))
             }
         }
 
+        guard let fallback = options.first else {
+            return singleCages(startingID: startingID, cells: cells, solution: solution)
+        }
+
         var weighted: [(CageOperation, Int)] = []
         for option in options {
-            let copies = weight(option.0, difficulty: difficulty, cellCount: values.count)
-            if copies > 0 {
-                weighted.append(contentsOf: Array(repeating: option, count: copies))
-            }
+            let copies = max(weight(option.0, difficulty: difficulty, cellCount: values.count), 1)
+            weighted.append(contentsOf: Array(repeating: option, count: copies))
         }
-        let chosen = weighted.randomElement(using: &rng) ?? (.add, values.reduce(0, +))
-        return Cage(id: id, cells: cells, operation: chosen.0, target: chosen.1)
+        let chosen = weighted.randomElement(using: &rng) ?? fallback
+        return [Cage(id: startingID, cells: cells, operation: chosen.0, target: chosen.1)]
+    }
+
+    private static func singleCages(startingID: Int, cells: [CellIndex], solution: [[Int]]) -> [Cage] {
+        cells.enumerated().map { offset, cell in
+            Cage(
+                id: startingID + offset,
+                cells: [cell],
+                operation: nil,
+                target: solution[cell.row][cell.column]
+            )
+        }
     }
 
     private static func weight(_ operation: CageOperation, difficulty: Difficulty, cellCount: Int) -> Int {
@@ -194,7 +235,11 @@ nonisolated enum KenKenGenerator {
     }
 
     /// Every cell is its own cage. That board is unique, so generation can always finish.
-    private static func revealedPuzzle<R: RandomNumberGenerator>(size: Int, rng: inout R) -> Puzzle {
+    private static func revealedPuzzle<R: RandomNumberGenerator>(
+        size: Int,
+        rules: OperatorRules,
+        rng: inout R
+    ) -> Puzzle {
         let solution = latinSquare(size: size, rng: &rng)
         var cages: [Cage] = []
         for row in 0..<size {
@@ -205,7 +250,7 @@ nonisolated enum KenKenGenerator {
                 )
             }
         }
-        return Puzzle(size: size, cages: cages, solution: solution)
+        return Puzzle(size: size, cages: cages, solution: solution, rules: rules)
     }
 }
 
@@ -316,11 +361,24 @@ nonisolated enum KenKenSolver {
                 if rowMask[row] & bit != 0 || columnMask[column] & bit != 0 {
                     continue
                 }
-                if allows(value, operation: cage.operation, target: cage.target, filled: filled, emptyOthers: emptyOthers) {
+                let operations = candidateOperations(for: cage)
+                let fits = operations.contains { operation in
+                    allows(value, operation: operation, target: cage.target, filled: filled, emptyOthers: emptyOthers)
+                }
+                if fits {
                     allowed.append(value)
                 }
             }
             return allowed
+        }
+
+        /// No-op cages accept a number when any selected operation can still reach the target.
+        func candidateOperations(for cage: Cage) -> [CageOperation?] {
+            guard puzzle.rules.hidesOperators, cage.operation != nil else {
+                return [cage.operation]
+            }
+            let operations = puzzle.rules.operations(forCellCount: cage.cells.count)
+            return operations.isEmpty ? [cage.operation] : operations.map(Optional.some)
         }
 
         /// Loose bounds for unfinished cages, exact checks once a cage is full.

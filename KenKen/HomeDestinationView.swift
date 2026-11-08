@@ -13,8 +13,8 @@ struct HomeDestinationView: View {
     var body: some View {
         Group {
             switch route {
-            case .newGame:
-                GameSetupView()
+            case .newGame(let launch):
+                GamePlayView(launch: launch)
             case .dailyPuzzle:
                 GamePlayView(launch: .daily())
             case .statistics:
@@ -31,7 +31,6 @@ struct HomeDestinationView: View {
         #if os(iOS) || os(visionOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .preferredColorScheme(.dark)
     }
 
     private var howToPlay: some View {
@@ -53,10 +52,14 @@ struct HomeDestinationView: View {
                     title: "Order is free",
                     text: "Subtraction and division may use the cells in any order, as long as some order produces the target."
                 )
+                rule(
+                    title: "No-op mode",
+                    text: "Settings can hide the operation. The target still has to be reachable by one of the operations you left on."
+                )
             }
             .padding(24)
             .frame(maxWidth: 560, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -78,5 +81,7 @@ struct HomeDestinationView: View {
 #Preview {
     NavigationStack {
         HomeDestinationView(route: .howToPlay)
+            .kendokuScreen()
     }
+    .kendokuScreen()
 }

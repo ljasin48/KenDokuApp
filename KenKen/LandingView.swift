@@ -8,7 +8,7 @@
 import SwiftUI
 
 enum HomeRoute: Hashable {
-    case newGame
+    case newGame(GameLaunch)
     case howToPlay
     case dailyPuzzle
     case statistics
@@ -25,17 +25,13 @@ enum HomeRoute: Hashable {
     }
 }
 
-enum KenDokuColor {
-    static let clay = Color(red: 0.93, green: 0.45, blue: 0.27)
-    static let ink = Color(red: 0.07, green: 0.11, blue: 0.15)
-    static let moss = Color(red: 0.18, green: 0.34, blue: 0.32)
-}
-
 struct KenDokuBackground: View {
+    @Environment(\.appTheme) private var theme
+
     var body: some View {
         ZStack {
             LinearGradient(
-                colors: [KenDokuColor.ink, KenDokuColor.moss, Color(red: 0.32, green: 0.16, blue: 0.12)],
+                colors: theme.backgroundColors,
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -55,7 +51,7 @@ struct KenDokuBackground: View {
                     path.addLine(to: CGPoint(x: size.width, y: y))
                     y += step
                 }
-                context.stroke(path, with: .color(.white.opacity(0.05)), lineWidth: 1)
+                context.stroke(path, with: .color(theme.gridLine), lineWidth: 1)
             }
         }
         .ignoresSafeArea()
@@ -88,86 +84,152 @@ private struct MenuOption: Identifiable {
             title: "Statistics",
             detail: "Times, streaks, and solved grids",
             symbol: "chart.bar"
-        ),
-        MenuOption(
-            route: .settings,
-            title: "Settings",
-            detail: "Size, difficulty, and mistake highlights",
-            symbol: "gearshape"
         )
     ]
 }
 
 struct LandingView: View {
-    let startGame: () -> Void
+    let startGame: (GameLaunch) -> Void
+
+    @Environment(\.appTheme) private var theme
+    @AppStorage(GameSettings.size) private var size = 4
+    @AppStorage(GameSettings.difficulty) private var difficultyRaw = Difficulty.medium.rawValue
+    @AppStorage(GameSettings.highlightMistakes) private var highlightMistakes = true
+    @AppStorage(GameSettings.allowAdd) private var allowAdd = true
+    @AppStorage(GameSettings.allowSubtract) private var allowSubtract = true
+    @AppStorage(GameSettings.allowMultiply) private var allowMultiply = true
+    @AppStorage(GameSettings.allowDivide) private var allowDivide = true
+    @AppStorage(GameSettings.hideOperators) private var hideOperators = false
+
+    private let rowSpacing: CGFloat = 12
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 28) {
-                header
-                menu
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 24)
-            .padding(.bottom, 12)
-            .frame(maxWidth: 480)
-            .frame(maxWidth: .infinity)
+        ViewThatFits(in: .vertical) {
+            page(compact: false)
+            page(compact: true)
         }
+        .frame(maxWidth: 480)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { KenDokuBackground() }
         .navigationTitle("KenDoku")
         #if !os(macOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
-        .preferredColorScheme(.dark)
-        .safeAreaBar(edge: .bottom) {
-            Button(action: startGame) {
-                Label("Start Game", systemImage: "play.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.glassProminent)
-            .buttonSizing(.flexible)
-            .controlSize(.large)
-            .padding(.horizontal, 20)
-            .accessibilityHint("Opens a new puzzle")
-        }
     }
 
-    private var header: some View {
-        VStack(spacing: 16) {
-//            Text("12+")
-//                .font(.system(size: 40, weight: .bold, design: .rounded))
-//                .frame(width: 104, height: 104)
-//                .glassEffect(.regular, in: .rect(cornerRadius: 28))
-//                .accessibilityHidden(true)
+    private func page(compact: Bool) -> some View {
+        let spacing: CGFloat = compact ? 8 : rowSpacing
+        let gap: CGFloat = compact ? 8 : 16
+        return VStack(spacing: 0) {
+            Spacer(minLength: gap)
+            header(compact: compact)
+            Spacer(minLength: gap)
+            VStack(spacing: spacing) {
+                menu(spacing: spacing, rowPadding: compact ? 8 : 14)
+                startButton(rowPadding: compact ? 8 : 14)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, compact ? 8 : 12)
+    }
 
-            VStack(spacing: 6) {
-                Text("KenDoku")
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                Text("Sudoku, solved with arithmetic.")
+    private func header(compact: Bool) -> some View {
+        VStack(spacing: compact ? 2 : 6) {
+            Text("KenDoku")
+                .font(.system(size: compact ? 34 : 48, weight: .bold, design: .rounded))
+            if !compact {
+                Text("Arithmetic Sudoku")
                     .font(.title3)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
-
-            GlassEffectContainer(spacing: 8) {
-                HStack(spacing: 10) {
-                    ForEach(["+", "\u{2212}", "\u{00D7}", "\u{00F7}"], id: \.self) { symbol in
-                        Text(symbol)
-                            .font(.headline)
-                            .frame(width: 40, height: 40)
-                            .glassEffect(.regular, in: .circle)
-                    }
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Addition, subtraction, multiplication, and division")
         }
     }
 
-    private var menu: some View {
-        GlassEffectContainer(spacing: 10) {
-            VStack(spacing: 12) {
+    private func settingsCard(rowPadding: CGFloat) -> some View {
+        NavigationLink(value: HomeRoute.settings) {
+            HStack(spacing: 14) {
+                Image(systemName: "gearshape")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Settings")
+                        .font(.headline)
+                    Text(summaryLine)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, rowPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
+        .accessibilityHint("Opens game settings")
+    }
+
+    private func startButton(rowPadding: CGFloat) -> some View {
+        Button {
+            startGame(GameLaunch.random(size: resolvedSize, difficulty: difficulty))
+        } label: {
+            ZStack {
+                VStack(spacing: 2) {
+                    Text(" ").font(.headline)
+                    Text(" ").font(.subheadline)
+                }
+                .hidden()
+                .accessibilityHidden(true)
+
+                Label("Start Game", systemImage: "play.fill")
+                    .font(.headline)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, rowPadding)
+        }
+        .buttonStyle(.plain)
+        .buttonSizing(.flexible)
+        .glassEffect(.regular.tint(theme.accent).interactive(), in: .rect(cornerRadius: 22))
+        .accessibilityHint("Starts a \(resolvedSize) by \(resolvedSize) \(difficulty.title) puzzle")
+    }
+
+    private var summaryLine: String {
+        let symbols = rules.enabledOperations.map(\.symbol).joined(separator: " ")
+        let noOp = rules.hidesOperators ? " · No-op" : ""
+        return "\(resolvedSize)\u{00D7}\(resolvedSize) · \(difficulty.title) · \(symbols)\(noOp)"
+    }
+
+    private var rules: OperatorRules {
+        OperatorRules(
+            add: allowAdd,
+            subtract: allowSubtract,
+            multiply: allowMultiply,
+            divide: allowDivide,
+            hidesOperators: hideOperators
+        ).normalized
+    }
+
+    private var difficulty: Difficulty {
+        Difficulty(rawValue: difficultyRaw) ?? .medium
+    }
+
+    private var resolvedSize: Int {
+        GameLaunch.sizes.contains(size) ? size : 4
+    }
+
+    private func menu(spacing: CGFloat, rowPadding: CGFloat) -> some View {
+        GlassEffectContainer(spacing: 0) {
+            VStack(spacing: spacing) {
                 ForEach(MenuOption.landing) { option in
                     NavigationLink(value: option.route) {
                         HStack(spacing: 14) {
@@ -181,6 +243,7 @@ struct LandingView: View {
                                 Text(option.detail)
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
+                                    .lineLimit(1)
                             }
 
                             Spacer(minLength: 8)
@@ -190,12 +253,13 @@ struct LandingView: View {
                                 .foregroundStyle(.tertiary)
                         }
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
+                        .padding(.vertical, rowPadding)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
                 }
+                settingsCard(rowPadding: rowPadding)
             }
         }
     }
@@ -203,6 +267,8 @@ struct LandingView: View {
 
 #Preview {
     NavigationStack {
-        LandingView {}
+        LandingView { _ in }
+            .kendokuScreen()
     }
+    .kendokuScreen()
 }

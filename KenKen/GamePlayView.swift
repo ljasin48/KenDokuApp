@@ -12,7 +12,13 @@ struct GamePlayView: View {
 
     @Environment(PlayerStats.self) private var stats
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTheme) private var theme
     @AppStorage(GameSettings.highlightMistakes) private var highlightMistakes = true
+    @AppStorage(GameSettings.allowAdd) private var allowAdd = true
+    @AppStorage(GameSettings.allowSubtract) private var allowSubtract = true
+    @AppStorage(GameSettings.allowMultiply) private var allowMultiply = true
+    @AppStorage(GameSettings.allowDivide) private var allowDivide = true
+    @AppStorage(GameSettings.hideOperators) private var hideOperators = false
 
     @State private var loadID = 0
     @State private var installedID: Int?
@@ -36,7 +42,7 @@ struct GamePlayView: View {
             KenDokuBackground()
             if isLoading || puzzle == nil {
                 ProgressView("Building a \(launch.size)\u{00D7}\(launch.size)")
-                    .tint(.white)
+                    .tint(theme.accent)
             } else if let puzzle {
                 playfield(puzzle)
             }
@@ -47,7 +53,6 @@ struct GamePlayView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar { toolbar }
-        .preferredColorScheme(.dark)
         .task(id: loadID) {
             await loadPuzzle()
         }
@@ -99,32 +104,121 @@ struct GamePlayView: View {
     }
 
     private func playfield(_ puzzle: Puzzle) -> some View {
+        GeometryReader { proxy in
+            Group {
+                if prefersSideControls(in: proxy.size) {
+                    widePlayfield(puzzle, in: proxy.size)
+                } else {
+                    stackedPlayfield(puzzle)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .overlay {
+                if didFinish && !hideWinCard {
+                    winCard
+                }
+            }
+        }
+    }
+
+    /// Landscape, including the closed Duo, keeps the controls beside the board so the grid can use the height.
+    private func prefersSideControls(in size: CGSize) -> Bool {
+        guard size.width > size.height else { return false }
+        let column = sideColumnWidth(for: size.width)
+        let boardSide = min(size.width - column - 48, size.height - 64)
+        return boardSide >= 220
+    }
+
+    private func sideColumnWidth(for width: CGFloat) -> CGFloat {
+        width >= 900 ? 208 : 164
+    }
+
+    private func stackedPlayfield(_ puzzle: Puzzle) -> some View {
         VStack(spacing: 14) {
             statusBar
-            KenKenBoard(
-                puzzle: puzzle,
-                entries: entries,
-                notes: notes,
-                selection: selection,
-                analysis: analysis(for: puzzle),
-                showMistakes: highlightMistakes,
-                onSelect: { selection = $0 }
-            )
-            .frame(maxWidth: 640)
-            .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
-
+            board(puzzle)
+                .frame(maxWidth: 640)
             numberPad(size: puzzle.size)
             toolRow
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
         .padding(.vertical, 12)
         .frame(maxWidth: 680)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay {
-            if didFinish && !hideWinCard {
-                winCard
+    }
+
+    private func widePlayfield(_ puzzle: Puzzle, in size: CGSize) -> some View {
+        let column = sideColumnWidth(for: size.width)
+        return VStack(spacing: 12) {
+            statusBar
+            GeometryReader { proxy in
+                let side = max(0, min(proxy.size.width - column - 16, proxy.size.height))
+                HStack(alignment: .center, spacing: 16) {
+                    board(puzzle)
+                        .frame(width: side, height: side)
+                    sideControls(size: puzzle.size, height: proxy.size.height)
+                        .frame(width: column, height: proxy.size.height)
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func board(_ puzzle: Puzzle) -> some View {
+        KenKenBoard(
+            puzzle: puzzle,
+            entries: entries,
+            notes: notes,
+            selection: selection,
+            analysis: analysis(for: puzzle),
+            showMistakes: highlightMistakes,
+            onSelect: { selection = $0 }
+        )
+        .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+    }
+
+    private func sideControls(size: Int, height: CGFloat) -> some View {
+        let numberRows = CGFloat((size + 1) / 2)
+        let toolCount: CGFloat = 4
+        let gridSpacing: CGFloat = 6
+        let toolSpacing: CGFloat = 6
+        let sectionSpacing: CGFloat = 8
+        let gaps = gridSpacing * max(0, numberRows - 1) + sectionSpacing + toolSpacing * (toolCount - 1)
+        let usable = max(0, height - gaps)
+        let share = usable / (numberRows + toolCount)
+        let toolHeight = min(48, share)
+        let numberHeight = min(46, (usable - toolHeight * toolCount) / numberRows)
+        return VStack(spacing: sectionSpacing) {
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
+                spacing: gridSpacing
+            ) {
+                ForEach(1...size, id: \.self) { number in
+                    numberButton(number, height: numberHeight)
+                }
+            }
+            VStack(spacing: toolSpacing) {
+                toolButton(notesMode ? "Notes On" : "Notes", systemImage: notesMode ? "pencil.circle.fill" : "pencil", height: toolHeight) {
+                    notesMode.toggle()
+                }
+                toolButton("Undo", systemImage: "arrow.uturn.backward", height: toolHeight) {
+                    undo()
+                }
+                .disabled(undoStack.isEmpty || didFinish)
+                toolButton("Erase", systemImage: "delete.left", height: toolHeight) {
+                    erase()
+                }
+                .disabled(didFinish)
+                toolButton("Hint", systemImage: "lightbulb", height: toolHeight) {
+                    useHint()
+                }
+                .disabled(didFinish)
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .center)
     }
 
     private var statusBar: some View {
@@ -145,14 +239,14 @@ struct GamePlayView: View {
         let remaining = (puzzle?.size ?? launch.size) * (puzzle?.size ?? launch.size) - report.filledCount
         let conflictCount = report.duplicates.count + report.brokenCageIDs.count
         return HStack {
-            Text(launch.isDaily ? "Today" : launch.difficulty.title)
+            Text(statusTitle)
             Spacer()
             if didFinish {
                 Text("Solved")
-                    .foregroundStyle(KenDokuColor.clay)
+                    .foregroundStyle(theme.accent)
             } else if highlightMistakes && conflictCount > 0 {
                 Text("Check highlighted cells")
-                    .foregroundStyle(KenDokuColor.clay)
+                    .foregroundStyle(theme.accent)
             } else {
                 Text("\(remaining) left")
             }
@@ -164,20 +258,29 @@ struct GamePlayView: View {
     }
 
     private func numberPad(size: Int) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: size >= 8 ? 4 : 8) {
             ForEach(1...size, id: \.self) { number in
-                Button {
-                    pressNumber(number)
-                } label: {
-                    Text("\(number)")
-                        .font(.title2.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 46)
-                }
-                .buttonStyle(.glass)
-                .disabled(didFinish)
+                numberButton(number, height: 46)
             }
         }
+    }
+
+    private func numberButton(_ number: Int, height: CGFloat) -> some View {
+        Button {
+            pressNumber(number)
+        } label: {
+            Text("\(number)")
+                .font(.title2.weight(.semibold))
+                .minimumScaleFactor(0.4)
+                .lineLimit(1)
+                .allowsTightening(true)
+                .frame(maxWidth: .infinity)
+                .frame(height: height)
+        }
+        .buttonStyle(.plain)
+        .buttonSizing(.flexible)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
+        .disabled(didFinish)
     }
 
     private var toolRow: some View {
@@ -203,6 +306,7 @@ struct GamePlayView: View {
     private func toolButton(
         _ title: String,
         systemImage: String,
+        height: CGFloat = 48,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -212,9 +316,10 @@ struct GamePlayView: View {
                 Text(title)
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 48)
+            .frame(height: height)
         }
         .buttonStyle(.glass)
     }
@@ -257,6 +362,22 @@ struct GamePlayView: View {
         }
     }
 
+    private var selectedRules: OperatorRules {
+        OperatorRules(
+            add: allowAdd,
+            subtract: allowSubtract,
+            multiply: allowMultiply,
+            divide: allowDivide,
+            hidesOperators: hideOperators
+        )
+    }
+
+    private var statusTitle: String {
+        if launch.isDaily { return "Today" }
+        if puzzle?.rules.hidesOperators == true { return "No-op" }
+        return launch.difficulty.title
+    }
+
     private func analysis(for puzzle: Puzzle) -> BoardAnalysis {
         guard entries.count == puzzle.size else { return .empty }
         return KenKenRules.analyze(entries: entries, puzzle: puzzle)
@@ -269,8 +390,9 @@ struct GamePlayView: View {
         let size = launch.size
         let difficulty = launch.difficulty
         let seed = launch.seed
+        let rules = launch.isDaily ? OperatorRules.standard : selectedRules
         let generated = await Task.detached {
-            KenKenGenerator.generate(size: size, difficulty: difficulty, seed: seed)
+            KenKenGenerator.generate(size: size, difficulty: difficulty, seed: seed, rules: rules)
         }.value
         guard !Task.isCancelled, token == loadID else { return }
         install(generated, token: token)
@@ -278,9 +400,9 @@ struct GamePlayView: View {
 
     private func install(_ generated: Puzzle, token: Int) {
         puzzle = generated
-        entries = Self.blankEntries(size: generated.size)
+        entries = generated.startingEntries()
         notes = Self.blankNotes(size: generated.size)
-        selection = CellIndex(row: 0, column: 0)
+        selection = firstEmpty(in: generated) ?? CellIndex(row: 0, column: 0)
         undoStack = []
         notesMode = false
         didFinish = false
@@ -290,6 +412,7 @@ struct GamePlayView: View {
         frozenSeconds = 0
         installedID = token
         isLoading = false
+        finishIfNeeded()
     }
 
     private func pressNumber(_ number: Int) {
@@ -305,7 +428,7 @@ struct GamePlayView: View {
     }
 
     private func write(_ value: Int, at cell: CellIndex) {
-        guard !didFinish else { return }
+        guard !didFinish, !isGiven(cell) else { return }
         let previousValue = entries[cell.row][cell.column]
         let previousNotes = notes[cell.row][cell.column]
         guard previousValue != value else { return }
@@ -316,6 +439,7 @@ struct GamePlayView: View {
     }
 
     private func toggleNote(_ number: Int, at cell: CellIndex) {
+        guard !isGiven(cell) else { return }
         var cellNotes = notes[cell.row][cell.column]
         let previous = cellNotes
         if cellNotes.contains(number) {
@@ -328,7 +452,7 @@ struct GamePlayView: View {
     }
 
     private func erase() {
-        guard let cell = selection, !didFinish else { return }
+        guard let cell = selection, !didFinish, !isGiven(cell) else { return }
         let previousValue = entries[cell.row][cell.column]
         let previousNotes = notes[cell.row][cell.column]
         guard previousValue != nil || !previousNotes.isEmpty else { return }
@@ -400,13 +524,18 @@ struct GamePlayView: View {
     }
 
     private var hasProgress: Bool {
-        entries.contains { row in row.contains { $0 != nil } }
-            || notes.contains { row in row.contains { !$0.isEmpty } }
+        guard let puzzle else { return false }
+        if entries != puzzle.startingEntries() { return true }
+        return notes.contains { row in row.contains { !$0.isEmpty } }
+    }
+
+    private func isGiven(_ cell: CellIndex) -> Bool {
+        puzzle?.isGiven(cell) ?? false
     }
 
     private func clearBoard() {
         guard let puzzle else { return }
-        entries = Self.blankEntries(size: puzzle.size)
+        entries = puzzle.startingEntries()
         notes = Self.blankNotes(size: puzzle.size)
         undoStack = []
         notesMode = false
@@ -415,7 +544,7 @@ struct GamePlayView: View {
         hideWinCard = false
         startedAt = .now
         frozenSeconds = 0
-        selection = CellIndex(row: 0, column: 0)
+        selection = firstEmpty(in: puzzle) ?? CellIndex(row: 0, column: 0)
     }
 
     private static func blankEntries(size: Int) -> [[Int?]] {
@@ -448,31 +577,31 @@ private struct KenKenBoard: View {
     let showMistakes: Bool
     let onSelect: (CellIndex) -> Void
 
-    private enum Ink {
-        static let paper = Color(red: 0.97, green: 0.94, blue: 0.89)
-        static let line = Color(red: 0.11, green: 0.12, blue: 0.14)
-        static let clue = Color(red: 0.55, green: 0.24, blue: 0.16)
-        static let conflict = Color(red: 0.72, green: 0.16, blue: 0.14)
-        static let selected = Color(red: 0.93, green: 0.45, blue: 0.27).opacity(0.34)
-        static let peer = Color(red: 0.93, green: 0.45, blue: 0.27).opacity(0.12)
-        static let conflictFill = Color(red: 0.76, green: 0.18, blue: 0.16).opacity(0.24)
-    }
+    @Environment(\.appTheme) private var theme
+
+    private static let conflict = Color(red: 0.72, green: 0.16, blue: 0.14)
+    private static let conflictFill = Color(red: 0.76, green: 0.18, blue: 0.16).opacity(0.24)
 
     var body: some View {
-        VStack(spacing: 0) {
-            ForEach(0..<puzzle.size, id: \.self) { row in
-                HStack(spacing: 0) {
-                    ForEach(0..<puzzle.size, id: \.self) { column in
-                        cellButton(row: row, column: column)
+        // The clear square owns the layout. A 9×9 grid's own ideal size is taller than that square
+        // in the side-by-side layout, and the paper was filling the extra height.
+        Color.clear
+            .aspectRatio(1, contentMode: .fit)
+            .overlay {
+                VStack(spacing: 0) {
+                    ForEach(0..<puzzle.size, id: \.self) { row in
+                        HStack(spacing: 0) {
+                            ForEach(0..<puzzle.size, id: \.self) { column in
+                                cellButton(row: row, column: column)
+                            }
+                        }
+                        .frame(maxHeight: .infinity)
                     }
                 }
-                .frame(maxHeight: .infinity)
             }
-        }
-        .aspectRatio(1, contentMode: .fit)
-        .padding(Self.cageLineWidth / 2)
-        .background(Ink.paper)
-        .overlay { borderCanvas.allowsHitTesting(false) }
+            .padding(Self.cageLineWidth / 2)
+            .background(theme.paper)
+            .overlay { borderCanvas.allowsHitTesting(false) }
     }
 
     /// Cage dividers and the outer border share this width. Half of it sits outside the cells.
@@ -538,10 +667,10 @@ private struct KenKenBoard: View {
                 }
             }
 
-            context.stroke(thin, with: .color(Ink.line.opacity(0.22)), lineWidth: 1)
+            context.stroke(thin, with: .color(theme.boardLine.opacity(0.22)), lineWidth: 1)
             context.stroke(
                 heavy,
-                with: .color(Ink.line),
+                with: .color(theme.boardLine),
                 style: StrokeStyle(lineWidth: Self.cageLineWidth, lineCap: .square)
             )
         }
@@ -549,12 +678,13 @@ private struct KenKenBoard: View {
 
     private func cellFace(_ cell: CellIndex, side: CGFloat) -> some View {
         let value = entries[cell.row][cell.column]
-        let clue = puzzle.clues[cell]
+        let given = puzzle.isGiven(cell)
+        let clue = given ? nil : puzzle.clues[cell]
         return ZStack(alignment: .topLeading) {
             if let value {
                 Text("\(value)")
-                    .font(.system(size: side * 0.42, weight: .medium, design: .rounded))
-                    .foregroundStyle(isConflict(cell) ? Ink.conflict : Ink.line)
+                    .font(.system(size: side * 0.42, weight: given ? .bold : .medium, design: .rounded))
+                    .foregroundStyle(isConflict(cell) ? Self.conflict : (given ? theme.clue : theme.boardLine))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .offset(y: clue == nil ? 0 : side * 0.05)
             } else if !notes[cell.row][cell.column].isEmpty {
@@ -564,7 +694,7 @@ private struct KenKenBoard: View {
             if let clue {
                 Text(clue)
                     .font(.system(size: max(9, side * 0.2), weight: .bold, design: .rounded))
-                    .foregroundStyle(Ink.clue)
+                    .foregroundStyle(theme.clue)
                     .minimumScaleFactor(0.5)
                     .lineLimit(1)
                     .padding(.leading, side * 0.07)
@@ -588,22 +718,22 @@ private struct KenKenBoard: View {
                 }
             }
         }
-        .foregroundStyle(Ink.line.opacity(0.62))
+        .foregroundStyle(theme.boardLine.opacity(0.62))
         .padding(.top, hasClue ? side * 0.24 : side * 0.08)
         .padding(.horizontal, side * 0.08)
         .padding(.bottom, side * 0.06)
     }
 
     private func fill(_ cell: CellIndex) -> Color {
-        if isConflict(cell) { return Ink.conflictFill }
-        if selection == cell { return Ink.selected }
+        if isConflict(cell) { return Self.conflictFill }
+        if selection == cell { return theme.selectedFill }
         guard let selection else { return .clear }
         if cell.row == selection.row || cell.column == selection.column {
-            return Ink.peer
+            return theme.peerFill
         }
         if let selectedValue = entries[selection.row][selection.column],
            entries[cell.row][cell.column] == selectedValue {
-            return Ink.peer
+            return theme.peerFill
         }
         return .clear
     }
@@ -617,7 +747,9 @@ private struct KenKenBoard: View {
 
     private func label(for cell: CellIndex) -> String {
         var parts = ["Row \(cell.row + 1), column \(cell.column + 1)"]
-        if let value = entries[cell.row][cell.column] {
+        if puzzle.isGiven(cell), let value = entries[cell.row][cell.column] {
+            parts.append("given \(value)")
+        } else if let value = entries[cell.row][cell.column] {
             parts.append("\(value)")
         } else {
             parts.append("empty")
@@ -635,6 +767,8 @@ private struct KenKenBoard: View {
 #Preview {
     NavigationStack {
         GamePlayView(launch: GameLaunch(size: 4, difficulty: .easy, seed: 1, isDaily: false, id: 1))
+            .kendokuScreen()
     }
+    .kendokuScreen()
     .environment(PlayerStats.preview)
 }

@@ -54,11 +54,13 @@ nonisolated enum Difficulty: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-nonisolated enum CageOperation: String, Sendable {
+nonisolated enum CageOperation: String, CaseIterable, Identifiable, Hashable, Sendable {
     case add
     case subtract
     case multiply
     case divide
+
+    var id: String { rawValue }
 
     var symbol: String {
         switch self {
@@ -66,6 +68,76 @@ nonisolated enum CageOperation: String, Sendable {
         case .subtract: "\u{2212}"
         case .multiply: "\u{00D7}"
         case .divide: "\u{00F7}"
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .add: "Addition"
+        case .subtract: "Subtraction"
+        case .multiply: "Multiplication"
+        case .divide: "Division"
+        }
+    }
+
+    /// Subtraction and division are only defined for a pair of cells.
+    var allowsLargerCages: Bool {
+        switch self {
+        case .add, .multiply: true
+        case .subtract, .divide: false
+        }
+    }
+}
+
+/// Which operations a puzzle may use, and whether those symbols are shown.
+nonisolated struct OperatorRules: Sendable, Equatable, Hashable {
+    var add: Bool
+    var subtract: Bool
+    var multiply: Bool
+    var divide: Bool
+    var hidesOperators: Bool
+
+    static let standard = OperatorRules(
+        add: true,
+        subtract: true,
+        multiply: true,
+        divide: true,
+        hidesOperators: false
+    )
+
+    func allows(_ operation: CageOperation) -> Bool {
+        switch operation {
+        case .add: add
+        case .subtract: subtract
+        case .multiply: multiply
+        case .divide: divide
+        }
+    }
+
+    mutating func set(_ operation: CageOperation, enabled: Bool) {
+        switch operation {
+        case .add: add = enabled
+        case .subtract: subtract = enabled
+        case .multiply: multiply = enabled
+        case .divide: divide = enabled
+        }
+    }
+
+    var enabledOperations: [CageOperation] {
+        CageOperation.allCases.filter(allows)
+    }
+
+    /// At least one operation has to stay available so a puzzle can be built.
+    var normalized: OperatorRules {
+        guard enabledOperations.isEmpty else { return self }
+        var restored = OperatorRules.standard
+        restored.hidesOperators = hidesOperators
+        return restored
+    }
+
+    func operations(forCellCount count: Int) -> [CageOperation] {
+        enabledOperations.filter { operation in
+            count == 2 || operation.allowsLargerCages
         }
     }
 }
@@ -76,8 +148,8 @@ nonisolated struct Cage: Identifiable, Sendable {
     let operation: CageOperation?
     let target: Int
 
-    var clue: String {
-        guard let operation else { return "\(target)" }
+    func clue(hidingOperation: Bool) -> String {
+        guard let operation, !hidingOperation else { return "\(target)" }
         return "\(target)\(operation.symbol)"
     }
 }
@@ -88,11 +160,13 @@ nonisolated struct Puzzle: Sendable {
     let solution: [[Int]]
     let cageIDs: [[Int]]
     let clues: [CellIndex: String]
+    let rules: OperatorRules
 
-    init(size: Int, cages: [Cage], solution: [[Int]]) {
+    init(size: Int, cages: [Cage], solution: [[Int]], rules: OperatorRules = .standard) {
         self.size = size
         self.cages = cages
         self.solution = solution
+        self.rules = rules
 
         var ids = Array(repeating: Array(repeating: 0, count: size), count: size)
         var clueLabels: [CellIndex: String] = [:]
@@ -101,11 +175,27 @@ nonisolated struct Puzzle: Sendable {
                 ids[cell.row][cell.column] = cage.id
             }
             if let anchor = Self.anchor(of: cage) {
-                clueLabels[anchor] = cage.clue
+                clueLabels[anchor] = cage.clue(hidingOperation: rules.hidesOperators)
             }
         }
         cageIDs = ids
         clues = clueLabels
+    }
+
+    /// A one-cell cage is fixed to its target, so that number can be filled in immediately.
+    func isGiven(_ cell: CellIndex) -> Bool {
+        guard cell.row >= 0, cell.column >= 0, cell.row < size, cell.column < size else { return false }
+        return cages[cageIDs[cell.row][cell.column]].cells.count == 1
+    }
+
+    func startingEntries() -> [[Int?]] {
+        var grid = Array(repeating: Array(repeating: Optional<Int>.none, count: size), count: size)
+        for cage in cages where cage.cells.count == 1 {
+            for cell in cage.cells {
+                grid[cell.row][cell.column] = cage.target
+            }
+        }
+        return grid
     }
 
     private static func anchor(of cage: Cage) -> CellIndex? {
@@ -197,7 +287,7 @@ nonisolated enum KenKenRules {
                 values.append(value)
             }
             guard values.count == cage.cells.count else { continue }
-            if !isSatisfied(values: values, operation: cage.operation, target: cage.target) {
+            if !cageIsSatisfied(values: values, cage: cage, rules: puzzle.rules) {
                 brokenCageIDs.insert(cage.id)
             }
         }
@@ -209,6 +299,19 @@ nonisolated enum KenKenRules {
             filledCount: filledCount,
             isSolved: isSolved
         )
+    }
+
+    /// No-op mode accepts any selected operation that produces the target.
+    static func cageIsSatisfied(values: [Int], cage: Cage, rules: OperatorRules) -> Bool {
+        if cage.operation == nil || values.count <= 1 {
+            return values.count == 1 && values.first == cage.target
+        }
+        if rules.hidesOperators {
+            return rules.operations(forCellCount: values.count).contains { operation in
+                isSatisfied(values: values, operation: operation, target: cage.target)
+            }
+        }
+        return isSatisfied(values: values, operation: cage.operation, target: cage.target)
     }
 
     static func solutionIsValid(_ puzzle: Puzzle) -> Bool {

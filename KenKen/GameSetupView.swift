@@ -11,6 +11,12 @@ enum GameSettings {
     static let size = "kendoku.size"
     static let difficulty = "kendoku.difficulty"
     static let highlightMistakes = "kendoku.highlightMistakes"
+    static let allowAdd = "kendoku.allowAdd"
+    static let allowSubtract = "kendoku.allowSubtract"
+    static let allowMultiply = "kendoku.allowMultiply"
+    static let allowDivide = "kendoku.allowDivide"
+    static let hideOperators = "kendoku.hideOperators"
+    static let theme = "kendoku.theme"
 }
 
 struct GameLaunch: Hashable {
@@ -20,11 +26,11 @@ struct GameLaunch: Hashable {
     var isDaily: Bool
     var id: UInt64
 
-    static let sizes = [3, 4, 5, 6]
+    static let sizes = [3, 4, 5, 6, 7, 8, 9]
 
     static func daily(on date: Date = .now) -> GameLaunch {
         let seed = DayStamp.seed(from: date)
-        return GameLaunch(size: 5, difficulty: .medium, seed: seed, isDaily: true, id: seed)
+        return GameLaunch(size: 6, difficulty: .hard, seed: seed, isDaily: true, id: seed)
     }
 
     static func random(size: Int, difficulty: Difficulty) -> GameLaunch {
@@ -38,99 +44,94 @@ struct GameLaunch: Hashable {
     }
 }
 
-struct GameSetupView: View {
-    @AppStorage(GameSettings.size) private var size = 4
-    @AppStorage(GameSettings.difficulty) private var difficultyRaw = Difficulty.medium.rawValue
-    @State private var launch: GameLaunch?
+struct OperatorRulesEditor: View {
+    @AppStorage(GameSettings.allowAdd) private var allowAdd = true
+    @AppStorage(GameSettings.allowSubtract) private var allowSubtract = true
+    @AppStorage(GameSettings.allowMultiply) private var allowMultiply = true
+    @AppStorage(GameSettings.allowDivide) private var allowDivide = true
+    @AppStorage(GameSettings.hideOperators) private var hideOperators = false
 
-    private var difficulty: Difficulty {
-        Difficulty(rawValue: difficultyRaw) ?? .medium
+    private var rules: OperatorRules {
+        OperatorRules(
+            add: allowAdd,
+            subtract: allowSubtract,
+            multiply: allowMultiply,
+            divide: allowDivide,
+            hidesOperators: hideOperators
+        )
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                Text("Pick a size and difficulty. Each row and column uses every number once, and every cage has to hit its target.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Operators")
+                .font(.headline)
+            Text("New games use the operations you leave on. At least one stays selected.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Size")
-                        .font(.headline)
-                    Picker("Size", selection: $size) {
-                        ForEach(GameLaunch.sizes, id: \.self) { value in
-                            Text("\(value)\u{00D7}\(value)").tag(value)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityLabel("Board size")
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Difficulty")
-                        .font(.headline)
-                    ForEach(Difficulty.allCases) { item in
-                        Button {
-                            difficultyRaw = item.rawValue
-                        } label: {
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.title)
-                                        .font(.headline)
-                                    Text(item.detail)
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                        .multilineTextAlignment(.leading)
-                                }
-                                Spacer(minLength: 8)
-                                if difficulty == item {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(KenDokuColor.clay)
-                                }
-                            }
-                            .padding(16)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 20))
-                        .accessibilityAddTraits(difficulty == item ? .isSelected : [])
-                    }
+            HStack(spacing: 8) {
+                ForEach(CageOperation.allCases) { operation in
+                    operatorButton(operation)
                 }
             }
-            .padding(24)
-            .frame(maxWidth: 560, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .safeAreaBar(edge: .bottom) {
-            Button {
-                launch = GameLaunch.random(size: resolvedSize, difficulty: difficulty)
-            } label: {
-                Label("Play", systemImage: "play.fill")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
+
+            Toggle(isOn: $hideOperators) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("No-op mode")
+                    Text("Hide the operation. A cage is correct when any selected operation hits the target.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .buttonStyle(.glassProminent)
-            .buttonSizing(.flexible)
-            .controlSize(.large)
-            .padding(.horizontal, 20)
-        }
-        .navigationDestination(item: $launch) { launch in
-            GamePlayView(launch: launch)
-        }
-        .onAppear {
-            if !GameLaunch.sizes.contains(size) {
-                size = 4
-            }
+            .padding(16)
+            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+
+            Text("The daily puzzle always shows all four operations.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 
-    private var resolvedSize: Int {
-        GameLaunch.sizes.contains(size) ? size : 4
+    @ViewBuilder
+    private func operatorButton(_ operation: CageOperation) -> some View {
+        let isOn = rules.allows(operation)
+        if isOn {
+            operatorControl(operation, isOn: true)
+                .buttonStyle(.glassProminent)
+        } else {
+            operatorControl(operation, isOn: false)
+                .buttonStyle(.glass)
+        }
+    }
+
+    private func operatorControl(_ operation: CageOperation, isOn: Bool) -> some View {
+        Button {
+            toggle(operation)
+        } label: {
+            Text(operation.symbol)
+                .font(.title.weight(.bold))
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+        }
+        .accessibilityLabel(operation.name)
+        .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+
+    private func toggle(_ operation: CageOperation) {
+        var next = rules
+        next.set(operation, enabled: !next.allows(operation))
+        guard !next.enabledOperations.isEmpty else { return }
+        allowAdd = next.add
+        allowSubtract = next.subtract
+        allowMultiply = next.multiply
+        allowDivide = next.divide
     }
 }
 
 #Preview {
-    NavigationStack {
-        GameSetupView()
-    }
+    OperatorRulesEditor()
+        .padding()
 }

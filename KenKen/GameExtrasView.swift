@@ -46,7 +46,7 @@ struct StatisticsView: View {
             }
             .padding(24)
             .frame(maxWidth: 560, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -96,6 +96,7 @@ struct SettingsView: View {
     @AppStorage(GameSettings.size) private var size = 4
     @AppStorage(GameSettings.difficulty) private var difficultyRaw = Difficulty.medium.rawValue
     @AppStorage(GameSettings.highlightMistakes) private var highlightMistakes = true
+    @AppStorage(GameSettings.theme) private var themeRaw = AppTheme.kendoku.rawValue
 
     private var difficulty: Difficulty {
         Difficulty(rawValue: difficultyRaw) ?? .medium
@@ -103,61 +104,151 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                Text("These choices are the starting point for a new game.")
-                    .foregroundStyle(.secondary)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Size")
-                        .font(.headline)
-                    Picker("Size", selection: $size) {
-                        ForEach(GameLaunch.sizes, id: \.self) { value in
-                            Text("\(value)\u{00D7}\(value)").tag(value)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Difficulty")
-                        .font(.headline)
-                    Picker("Difficulty", selection: $difficultyRaw) {
-                        ForEach(Difficulty.allCases) { item in
-                            Text(item.title).tag(item.rawValue)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    Text(difficulty.detail)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Toggle(isOn: $highlightMistakes) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Highlight mistakes")
-                        Text("Mark repeated numbers and finished cages that miss their target.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(16)
-                .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            VStack(alignment: .leading, spacing: 32) {
+                gameplaySettings
+                appSettings
             }
             .padding(24)
             .frame(maxWidth: 560, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .onAppear {
             if !GameLaunch.sizes.contains(size) {
                 size = 4
             }
+            if AppTheme(rawValue: themeRaw) == nil {
+                themeRaw = AppTheme.kendoku.rawValue
+            }
         }
+    }
+
+    private var gameplaySettings: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            sectionHeader("Gameplay", detail: "Start Game uses these choices.")
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Size")
+                    .font(.headline)
+                Picker("Size", selection: $size) {
+                    ForEach(GameLaunch.sizes, id: \.self) { value in
+                        Text("\(value)\u{00D7}\(value)").tag(value)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Difficulty")
+                    .font(.headline)
+                Picker("Difficulty", selection: $difficultyRaw) {
+                    ForEach(Difficulty.allCases) { item in
+                        Text(item.title).tag(item.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text(difficulty.detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            OperatorRulesEditor()
+
+            Toggle(isOn: $highlightMistakes) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Highlight mistakes")
+                    Text("Mark repeated numbers and finished cages that miss their target.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(16)
+            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        }
+    }
+
+    private var appSettings: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("App", detail: "Theme changes the whole app.")
+
+            ForEach(AppTheme.allCases) { theme in
+                themeButton(theme)
+            }
+        }
+    }
+
+    private func sectionHeader(_ title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+            Text(detail)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private func themeButton(_ theme: AppTheme) -> some View {
+        let isSelected = themeRaw == theme.rawValue
+        return Button {
+            themeRaw = theme.rawValue
+        } label: {
+            HStack(spacing: 14) {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: theme.backgroundColors,
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 52, height: 40)
+                    .overlay {
+                        Circle()
+                            .fill(theme.accent)
+                            .frame(width: 12, height: 12)
+                    }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(.white.opacity(0.4), lineWidth: 1)
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(theme.title)
+                        .font(.headline)
+                    Text(theme.detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(theme.accent)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .glassEffect(
+            isSelected ? .regular.tint(theme.accent).interactive() : .regular.interactive(),
+            in: .rect(cornerRadius: 20)
+        )
+        .accessibilityLabel(theme.title)
+        .accessibilityValue(theme.detail)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
 #Preview {
     NavigationStack {
         StatisticsView()
+            .kendokuScreen()
     }
+    .kendokuScreen()
     .environment(PlayerStats.preview)
 }
