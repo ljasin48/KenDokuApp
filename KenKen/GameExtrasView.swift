@@ -168,7 +168,7 @@ struct SettingsView: View {
 
     private var appSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("App", detail: "Theme changes the whole app.")
+            sectionHeader("App", detail: "Theme changes the app and its icon.")
 
             ForEach(AppTheme.allCases) { theme in
                 themeButton(theme)
@@ -193,22 +193,13 @@ struct SettingsView: View {
             themeRaw = theme.rawValue
         } label: {
             HStack(spacing: 14) {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: theme.backgroundColors,
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 52, height: 40)
+                Image(theme.iconAssetName)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay {
-                        Circle()
-                            .fill(theme.accent)
-                            .frame(width: 12, height: 12)
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .strokeBorder(.white.opacity(0.4), lineWidth: 1)
                     }
 
@@ -231,12 +222,12 @@ struct SettingsView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .glassEffect(
-            isSelected ? .regular.tint(theme.accent).interactive() : .regular.interactive(),
-            in: .rect(cornerRadius: 20)
+        .buttonStyle(
+            KenDokuGlassButtonStyle(
+                glass: isSelected ? .regular.tint(theme.accent).interactive() : .regular.interactive(),
+                cornerRadius: 20
+            )
         )
         .accessibilityLabel(theme.title)
         .accessibilityValue(theme.detail)

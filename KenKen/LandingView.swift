@@ -173,8 +173,7 @@ struct LandingView: View {
             .padding(.vertical, rowPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
+        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 22))
         .accessibilityHint("Opens game settings")
     }
 
@@ -197,9 +196,8 @@ struct LandingView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, rowPadding)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.tint(theme.accent).interactive(), cornerRadius: 22))
         .buttonSizing(.flexible)
-        .glassEffect(.regular.tint(theme.accent).interactive(), in: .rect(cornerRadius: 22))
         .accessibilityHint("Starts a \(resolvedSize) by \(resolvedSize) \(difficulty.title) puzzle")
     }
 
@@ -256,8 +254,7 @@ struct LandingView: View {
                         .padding(.vertical, rowPadding)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
+                    .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 22))
                 }
                 settingsCard(rowPadding: rowPadding)
             }

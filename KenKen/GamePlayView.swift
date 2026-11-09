@@ -277,9 +277,8 @@ struct GamePlayView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: height)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 12))
         .buttonSizing(.flexible)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
         .disabled(didFinish)
     }
 
@@ -321,7 +320,7 @@ struct GamePlayView: View {
             .frame(maxWidth: .infinity)
             .frame(height: height)
         }
-        .buttonStyle(.glass)
+        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 12))
     }
 
     private var winCard: some View {
@@ -344,15 +343,15 @@ struct GamePlayView: View {
                     Text("Show Board")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glass)
+                .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 14))
 
                 if launch.isDaily {
                     Button("Done", action: dismiss.callAsFunction)
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.tint(Color.accentColor).interactive(), cornerRadius: 14))
                         .buttonSizing(.flexible)
                 } else {
                     Button("Play Again") { loadID += 1 }
-                        .buttonStyle(.glassProminent)
+                        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.tint(Color.accentColor).interactive(), cornerRadius: 14))
                         .buttonSizing(.flexible)
                 }
             }
@@ -617,9 +616,8 @@ private struct KenKenBoard: View {
                     .frame(width: geo.size.width, height: geo.size.height)
             }
             .background(fill(index))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(KenDokuHitButtonStyle())
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel(label(for: index))
         .accessibilityAddTraits(selection == index ? .isSelected : [])

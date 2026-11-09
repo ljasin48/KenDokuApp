@@ -6,6 +6,11 @@
 //
 
 import SwiftUI
+#if os(iOS) || os(tvOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     case kendoku
@@ -132,6 +137,75 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
     var selectedFill: Color { accent.opacity(0.34) }
 
     var peerFill: Color { accent.opacity(0.12) }
+
+    /// Alternate app icon set. `nil` restores the primary KenDoku icon.
+    var alternateIconName: String? {
+        switch self {
+        case .kendoku: nil
+        case .space: "AppIcon-Space"
+        case .daylight: "AppIcon-Daylight"
+        case .grove: "AppIcon-Grove"
+        }
+    }
+
+    var iconAssetName: String {
+        switch self {
+        case .kendoku: "ThemeIconKendoku"
+        case .space: "ThemeIconSpace"
+        case .daylight: "ThemeIconDaylight"
+        case .grove: "ThemeIconGrove"
+        }
+    }
+
+    /// Keeps the Home Screen or Dock icon aligned with the selected theme.
+    func applyIcon() {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
+            return
+        }
+        #endif
+
+        let requestKey = alternateIconName ?? ""
+        guard AppIconRequest.claim(requestKey) else { return }
+
+        #if os(iOS) || os(tvOS)
+        let application = UIApplication.shared
+        guard application.supportsAlternateIcons else {
+            AppIconRequest.release(requestKey)
+            return
+        }
+        let iconName = alternateIconName
+        guard application.alternateIconName != iconName else { return }
+        application.setAlternateIconName(iconName) { error in
+            guard error != nil else { return }
+            Task { @MainActor in
+                AppIconRequest.release(requestKey)
+            }
+        }
+        #elseif os(macOS)
+        guard let image = NSImage(named: iconAssetName) else {
+            AppIconRequest.release(requestKey)
+            return
+        }
+        NSApplication.shared.applicationIconImage = image
+        #endif
+    }
+}
+
+/// Collapses repeated theme updates so the system icon alert is not shown twice.
+private enum AppIconRequest {
+    private static var claimedKey: String?
+
+    static func claim(_ key: String) -> Bool {
+        guard claimedKey != key else { return false }
+        claimedKey = key
+        return true
+    }
+
+    static func release(_ key: String) {
+        guard claimedKey == key else { return }
+        claimedKey = nil
+    }
 }
 
 private struct AppThemeKey: EnvironmentKey {

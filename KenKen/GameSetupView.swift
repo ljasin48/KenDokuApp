@@ -94,16 +94,11 @@ struct OperatorRulesEditor: View {
         }
     }
 
-    @ViewBuilder
     private func operatorButton(_ operation: CageOperation) -> some View {
         let isOn = rules.allows(operation)
-        if isOn {
-            operatorControl(operation, isOn: true)
-                .buttonStyle(.glassProminent)
-        } else {
-            operatorControl(operation, isOn: false)
-                .buttonStyle(.glass)
-        }
+        let glass: Glass = isOn ? .regular.tint(Color.accentColor).interactive() : .regular.interactive()
+        return operatorControl(operation, isOn: isOn)
+            .buttonStyle(KenDokuGlassButtonStyle(glass: glass, cornerRadius: 12))
     }
 
     private func operatorControl(_ operation: CageOperation, isOn: Bool) -> some View {

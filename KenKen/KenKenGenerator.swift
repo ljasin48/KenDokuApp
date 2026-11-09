@@ -58,20 +58,23 @@ nonisolated enum KenKenGenerator {
         }
 
         var ambiguous: (Puzzle, [[[Int]]])?
+        var playable: Puzzle?
         let attemptLimit = pairOnly ? 5 : 16
         let nodeLimit = pairOnly ? 4_000 : 12_000
         for maxSize in caps {
             for _ in 0..<attemptLimit {
                 let solution = latinSquare(size: size, rng: &rng)
-                let cages = cages(
+                guard let cages = cages(
                     from: solution,
                     maxSize: maxSize,
                     difficulty: difficulty,
                     rules: rules,
                     rng: &rng
-                )
+                ) else { continue }
                 let puzzle = Puzzle(size: size, cages: cages, solution: solution, rules: rules)
                 guard KenKenRules.solutionIsValid(puzzle) else { continue }
+                guard puzzle.cages.contains(where: { $0.cells.count > 1 }) else { continue }
+                playable = puzzle
 
                 // Stop after a second solution. A unique board is the one we built.
                 let outcome = KenKenSolver.countSolutions(of: puzzle, limit: 2, nodeLimit: nodeLimit)
@@ -87,7 +90,10 @@ nonisolated enum KenKenGenerator {
         if let ambiguous, let pinned = pin(ambiguous.0, solutions: ambiguous.1, difficulty: difficulty, rng: &rng) {
             return pinned
         }
-        return revealedPuzzle(size: size, rules: rules, rng: &rng)
+        if let playable {
+            return playable
+        }
+        return playableCover(size: size, difficulty: difficulty, rules: rules, rng: &rng)
     }
 
     /// Locks cells where two solutions disagree, until only one solution remains.
@@ -103,7 +109,8 @@ nonisolated enum KenKenGenerator {
         var second = solutions[1]
         for _ in 0..<puzzle.size {
             guard let cell = pinCell(between: first, and: second, puzzle: puzzle) else { return nil }
-            puzzle = splitOff(cell, in: puzzle, difficulty: difficulty, rng: &rng)
+            guard let split = splitOff(cell, in: puzzle, difficulty: difficulty, rng: &rng) else { return nil }
+            puzzle = split
             guard KenKenRules.solutionIsValid(puzzle) else { return nil }
             let outcome = KenKenSolver.countSolutions(of: puzzle, limit: 2, nodeLimit: 12_000)
             if outcome.count == 1 && !outcome.reachedLimit {
@@ -137,7 +144,7 @@ nonisolated enum KenKenGenerator {
         in puzzle: Puzzle,
         difficulty: Difficulty,
         rng: inout R
-    ) -> Puzzle {
+    ) -> Puzzle? {
         var groups = puzzle.cages.map(\.cells)
         guard let index = groups.firstIndex(where: { $0.contains(cell) }) else { return puzzle }
         let rest = groups[index].filter { $0 != cell }
@@ -174,20 +181,20 @@ nonisolated enum KenKenGenerator {
         difficulty: Difficulty,
         rules: OperatorRules,
         rng: inout R
-    ) -> Puzzle {
+    ) -> Puzzle? {
         var built: [Cage] = []
         for cells in groups where !cells.isEmpty {
-            built.append(contentsOf:
-                makeCages(
-                    startingID: built.count,
-                    cells: cells,
-                    solution: solution,
-                    difficulty: difficulty,
-                    rules: rules,
-                    rng: &rng
-                )
-            )
+            guard let made = makeCages(
+                startingID: built.count,
+                cells: cells,
+                solution: solution,
+                difficulty: difficulty,
+                rules: rules,
+                rng: &rng
+            ) else { return nil }
+            built.append(contentsOf: made)
         }
+        guard built.contains(where: { $0.cells.count > 1 }) else { return nil }
         return Puzzle(size: solution.count, cages: built, solution: solution, rules: rules)
     }
 
@@ -217,7 +224,7 @@ nonisolated enum KenKenGenerator {
         difficulty: Difficulty,
         rules: OperatorRules,
         rng: inout R
-    ) -> [Cage] {
+    ) -> [Cage]? {
         let size = solution.count
         let cap = max(2, maxSize)
         // A 3-cell cage needs addition or multiplication.
@@ -241,33 +248,18 @@ nonisolated enum KenKenGenerator {
         for cells in groups {
             let unique = cells.filter { covered.insert($0).inserted }
             guard !unique.isEmpty else { continue }
-            built.append(contentsOf:
-                makeCages(
-                    startingID: built.count,
-                    cells: unique,
-                    solution: solution,
-                    difficulty: difficulty,
-                    rules: rules,
-                    rng: &rng
-                )
-            )
+            guard let made = makeCages(
+                startingID: built.count,
+                cells: unique,
+                solution: solution,
+                difficulty: difficulty,
+                rules: rules,
+                rng: &rng
+            ) else { return nil }
+            built.append(contentsOf: made)
         }
-        for row in 0..<size {
-            for column in 0..<size {
-                let cell = CellIndex(row: row, column: column)
-                guard covered.insert(cell).inserted else { continue }
-                built.append(contentsOf:
-                    makeCages(
-                        startingID: built.count,
-                        cells: [cell],
-                        solution: solution,
-                        difficulty: difficulty,
-                        rules: rules,
-                        rng: &rng
-                    )
-                )
-            }
-        }
+        guard covered.count == size * size else { return nil }
+        guard built.contains(where: { $0.cells.count > 1 }) else { return nil }
         return built
     }
 
@@ -968,7 +960,7 @@ nonisolated enum KenKenGenerator {
         difficulty: Difficulty,
         rules: OperatorRules,
         rng: inout R
-    ) -> [Cage] {
+    ) -> [Cage]? {
         let values = cells.map { solution[$0.row][$0.column] }
         if values.count == 1 {
             return [Cage(id: startingID, cells: cells, operation: nil, target: values[0])]
@@ -993,9 +985,7 @@ nonisolated enum KenKenGenerator {
             }
         }
 
-        guard let fallback = options.first else {
-            return singleCages(startingID: startingID, cells: cells, solution: solution)
-        }
+        guard let fallback = options.first else { return nil }
 
         var weighted: [(CageOperation, Int)] = []
         for option in options {
@@ -1004,17 +994,6 @@ nonisolated enum KenKenGenerator {
         }
         let chosen = weighted.randomElement(using: &rng) ?? fallback
         return [Cage(id: startingID, cells: cells, operation: chosen.0, target: chosen.1)]
-    }
-
-    private static func singleCages(startingID: Int, cells: [CellIndex], solution: [[Int]]) -> [Cage] {
-        cells.enumerated().map { offset, cell in
-            Cage(
-                id: startingID + offset,
-                cells: [cell],
-                operation: nil,
-                target: solution[cell.row][cell.column]
-            )
-        }
     }
 
     private static func weight(_ operation: CageOperation, difficulty: Difficulty, cellCount: Int) -> Int {
@@ -1041,23 +1020,115 @@ nonisolated enum KenKenGenerator {
         }
     }
 
-    /// Every cell is its own cage. That board is unique, so generation can always finish.
-    private static func revealedPuzzle<R: RandomNumberGenerator>(
+    /// A board of real cages when the search never proved a unique puzzle. An all-single board would fill itself in.
+    private static func playableCover<R: RandomNumberGenerator>(
+        size: Int,
+        difficulty: Difficulty,
+        rules: OperatorRules,
+        rng: inout R
+    ) -> Puzzle {
+        let pairOnly = rules.operations(forCellCount: 3).isEmpty
+        let maxSize = pairOnly ? 2 : max(2, difficulty.maxCageSize)
+        for _ in 0..<48 {
+            let solution = latinSquare(size: size, rng: &rng)
+            guard let built = cages(
+                from: solution,
+                maxSize: maxSize,
+                difficulty: difficulty,
+                rules: rules,
+                rng: &rng
+            ) else { continue }
+            let puzzle = Puzzle(size: size, cages: built, solution: solution, rules: rules)
+            if KenKenRules.solutionIsValid(puzzle) {
+                return puzzle
+            }
+        }
+        return greedyPairs(size: size, rules: rules, rng: &rng)
+    }
+
+    /// Pairs each cell with a neighbor that can host an enabled operation.
+    private static func greedyPairs<R: RandomNumberGenerator>(
+        size: Int,
+        rules: OperatorRules,
+        rng: inout R
+    ) -> Puzzle {
+        var best: Puzzle?
+        var fewestSingles = Int.max
+        for _ in 0..<12 {
+            let puzzle = greedyBoard(size: size, rules: rules, rng: &rng)
+            let singles = puzzle.cages.filter { $0.cells.count == 1 }.count
+            if singles < fewestSingles {
+                best = puzzle
+                fewestSingles = singles
+            }
+            if singles <= size % 2 {
+                break
+            }
+        }
+        return best ?? greedyBoard(size: size, rules: rules, rng: &rng)
+    }
+
+    private static func greedyBoard<R: RandomNumberGenerator>(
         size: Int,
         rules: OperatorRules,
         rng: inout R
     ) -> Puzzle {
         let solution = latinSquare(size: size, rng: &rng)
-        var cages: [Cage] = []
-        for row in 0..<size {
-            for column in 0..<size {
-                let cell = CellIndex(row: row, column: column)
-                cages.append(
-                    Cage(id: cages.count, cells: [cell], operation: nil, target: solution[row][column])
-                )
+        var free = Set((0..<size).flatMap { row in
+            (0..<size).map { CellIndex(row: row, column: $0) }
+        })
+        var groups: [[CellIndex]] = []
+        for cell in free.sorted(by: isBefore) {
+            guard free.contains(cell) else { continue }
+            free.remove(cell)
+            let partner = orthogonalSteps.compactMap { step -> CellIndex? in
+                let next = CellIndex(row: cell.row + step.0, column: cell.column + step.1)
+                guard free.contains(next), operationFits([cell, next], solution: solution, rules: rules) else { return nil }
+                return next
+            }.min(by: isBefore)
+            if let partner {
+                free.remove(partner)
+                groups.append([cell, partner])
+            } else {
+                groups.append([cell])
             }
         }
-        return Puzzle(size: size, cages: cages, solution: solution, rules: rules)
+        var built: [Cage] = []
+        for cells in groups {
+            if let made = makeCages(
+                startingID: built.count,
+                cells: cells,
+                solution: solution,
+                difficulty: .easy,
+                rules: rules,
+                rng: &rng
+            ) {
+                built.append(contentsOf: made)
+            } else {
+                for cell in cells {
+                    built.append(
+                        Cage(id: built.count, cells: [cell], operation: nil, target: solution[cell.row][cell.column])
+                    )
+                }
+            }
+        }
+        return Puzzle(size: size, cages: built, solution: solution, rules: rules)
+    }
+
+    private static func operationFits(
+        _ cells: [CellIndex],
+        solution: [[Int]],
+        rules: OperatorRules
+    ) -> Bool {
+        let values = cells.map { solution[$0.row][$0.column] }
+        let allowed = rules.operations(forCellCount: values.count)
+        if allowed.contains(.add) || allowed.contains(.multiply) || allowed.contains(.subtract) {
+            return true
+        }
+        guard allowed.contains(.divide), values.count == 2 else { return false }
+        let low = min(values[0], values[1])
+        let high = max(values[0], values[1])
+        return low > 0 && high % low == 0
     }
 }
 
