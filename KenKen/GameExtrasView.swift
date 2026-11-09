@@ -146,9 +146,6 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                Text(difficulty.detail)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
             }
 
             OperatorRulesEditor()

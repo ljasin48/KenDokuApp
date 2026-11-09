@@ -27,14 +27,6 @@ nonisolated enum Difficulty: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    var detail: String {
-        switch self {
-        case .easy: "Straight cages of 2 or 3 cells"
-        case .medium: "Mostly 3-cell cages, up to 4, with a few bends"
-        case .hard: "A mix of 2 to 4 cells, plus zigzag cages of 5"
-        }
-    }
-
     /// Largest cage the generator will place for this difficulty.
     var maxCageSize: Int {
         switch self {
@@ -143,12 +135,22 @@ nonisolated struct OperatorRules: Sendable, Equatable, Hashable {
         CageOperation.allCases.filter(allows)
     }
 
-    /// At least one operation has to stay available so a puzzle can be built.
+    /// Division alone cannot fill a board. Many pairs do not divide evenly, so those cages collapse into single cells.
+    var isDivideOnly: Bool {
+        divide && !add && !subtract && !multiply
+    }
+
+    /// At least one operation has to stay available, and division cannot be the only one.
     var normalized: OperatorRules {
-        guard enabledOperations.isEmpty else { return self }
-        var restored = OperatorRules.standard
-        restored.hidesOperators = hidesOperators
-        return restored
+        if enabledOperations.isEmpty {
+            var restored = OperatorRules.standard
+            restored.hidesOperators = hidesOperators
+            return restored
+        }
+        guard isDivideOnly else { return self }
+        var repaired = self
+        repaired.add = true
+        return repaired
     }
 
     func operations(forCellCount count: Int) -> [CageOperation] {

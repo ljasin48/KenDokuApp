@@ -50,11 +50,10 @@ nonisolated enum KenKenGenerator {
         // Subtract and divide only apply to pairs, so a ruleset without a 3-cell operation stays pairs.
         let pairOnly = rules.operations(forCellCount: 3).isEmpty
         var caps: [Int] = []
-        for cap in [difficulty.maxCageSize, max(2, difficulty.maxCageSize - 1), 2] {
-            let limited = pairOnly ? min(cap, 2) : cap
-            if !caps.contains(limited) {
-                caps.append(limited)
-            }
+        // A pure pair pass draws an odd board as parallel dominoes with one seam. Keep it for pair-only rules.
+        let searchCaps = pairOnly ? [2] : [difficulty.maxCageSize, max(3, difficulty.maxCageSize - 1)]
+        for cap in searchCaps where !caps.contains(cap) {
+            caps.append(cap)
         }
 
         var ambiguous: (Puzzle, [[[Int]]])?
@@ -233,14 +232,21 @@ nonisolated enum KenKenGenerator {
         if pairOnly || cap < 3 {
             groups = snakeCover(size: size, difficulty: difficulty, maxSize: min(cap, 2), rng: &rng)
                 ?? pairCover(size: size, rng: &rng)
-        } else if let irregular = snakeCover(size: size, difficulty: difficulty, maxSize: cap, rng: &rng) {
-            groups = irregular
         } else {
-            var tiled = straightCover(size: size, rng: &rng)
-            if cap >= 4 {
-                tiled = reshape(tiled, difficulty: difficulty, maxSize: cap, rng: &rng)
+            let irregular = snakeCover(size: size, difficulty: difficulty, maxSize: cap, rng: &rng)
+            // An all-pair snake on an odd board is the striped seam. Tile with longer cages instead.
+            if let irregular, longestCage(in: irregular) >= 3, !isSeamedPairLayout(irregular, size: size) {
+                groups = irregular
+            } else {
+                var tiled = straightCover(size: size, rng: &rng)
+                if cap >= 4 {
+                    tiled = reshape(tiled, difficulty: difficulty, maxSize: cap, rng: &rng)
+                }
+                groups = tiled
             }
-            groups = tiled
+        }
+        if !pairOnly && cap >= 3 && (longestCage(in: groups) < 3 || isSeamedPairLayout(groups, size: size)) {
+            return nil
         }
 
         var built: [Cage] = []
@@ -525,6 +531,60 @@ nonisolated enum KenKenGenerator {
         }
         if Bool.random(using: &rng) {
             groups = transposed(groups)
+        }
+        return groups
+    }
+
+    /// Parallel dominoes with a single perpendicular seam. Odd pair covers look like this.
+    private static func isSeamedPairLayout(_ groups: [[CellIndex]], size: Int) -> Bool {
+        guard size % 2 == 1 else { return false }
+        let occupied = groups.filter { !$0.isEmpty }
+        let pairs = occupied.filter { $0.count == 2 }
+        let singles = occupied.filter { $0.count == 1 }
+        guard singles.count <= 1, pairs.count + singles.count == occupied.count, !pairs.isEmpty else { return false }
+
+        let horizontal = pairs.filter { $0[0].row == $0[1].row }
+        let vertical = pairs.filter { $0[0].column == $0[1].column }
+        guard horizontal.count + vertical.count == pairs.count else { return false }
+        let minorityIsVertical = vertical.count <= horizontal.count
+        let minority = minorityIsVertical ? vertical : horizontal
+        let majority = minorityIsVertical ? horizontal : vertical
+        guard !minority.isEmpty, minority.count * 2 <= size, majority.count > minority.count else { return false }
+        if minorityIsVertical {
+            return Set(minority.flatMap { $0.map(\.column) }).count == 1
+        }
+        return Set(minority.flatMap { $0.map(\.row) }).count == 1
+    }
+
+    private static func longestCage(in groups: [[CellIndex]]) -> Int {
+        groups.map(\.count).max() ?? 0
+    }
+
+    /// Joins the odd domino seam into one longer cage so the board is not a striped pair grid.
+    private static func breakSeamedPairs(_ groups: [[CellIndex]]) -> [[CellIndex]] {
+        var groups = groups.filter { !$0.isEmpty }
+        if let singleIndex = groups.firstIndex(where: { $0.count == 1 }) {
+            let single = groups[singleIndex]
+            if let pairIndex = groups.indices.first(where: { index in
+                index != singleIndex && groups[index].count == 2 && sharesEdge(groups[index], single)
+            }) {
+                groups[pairIndex].append(contentsOf: single)
+                groups.remove(at: singleIndex)
+                return groups
+            }
+        }
+        let pairIndexes = groups.indices.filter { groups[$0].count == 2 }
+        for left in pairIndexes {
+            for right in pairIndexes where right > left {
+                let leftCells = groups[left]
+                let rightCells = groups[right]
+                let leftHorizontal = leftCells[0].row == leftCells[1].row
+                let rightHorizontal = rightCells[0].row == rightCells[1].row
+                guard leftHorizontal != rightHorizontal, sharesEdge(leftCells, rightCells) else { continue }
+                groups[left].append(contentsOf: rightCells)
+                groups.remove(at: right)
+                return groups
+            }
         }
         return groups
     }
@@ -1074,23 +1134,34 @@ nonisolated enum KenKenGenerator {
         rng: inout R
     ) -> Puzzle {
         let solution = latinSquare(size: size, rng: &rng)
-        var free = Set((0..<size).flatMap { row in
-            (0..<size).map { CellIndex(row: row, column: $0) }
-        })
-        var groups: [[CellIndex]] = []
-        for cell in free.sorted(by: isBefore) {
-            guard free.contains(cell) else { continue }
-            free.remove(cell)
-            let partner = orthogonalSteps.compactMap { step -> CellIndex? in
-                let next = CellIndex(row: cell.row + step.0, column: cell.column + step.1)
-                guard free.contains(next), operationFits([cell, next], solution: solution, rules: rules) else { return nil }
-                return next
-            }.min(by: isBefore)
-            if let partner {
-                free.remove(partner)
-                groups.append([cell, partner])
-            } else {
-                groups.append([cell])
+        let allowLarger = !rules.operations(forCellCount: 3).isEmpty
+        var groups: [[CellIndex]]
+        if allowLarger {
+            var tiled = straightCover(size: size, rng: &rng)
+            tiled = reshape(tiled, difficulty: .medium, maxSize: 4, rng: &rng)
+            if longestCage(in: tiled) < 3 || isSeamedPairLayout(tiled, size: size) {
+                tiled = breakSeamedPairs(tiled)
+            }
+            groups = tiled
+        } else {
+            var free = Set((0..<size).flatMap { row in
+                (0..<size).map { CellIndex(row: row, column: $0) }
+            })
+            groups = []
+            for cell in free.sorted(by: isBefore) {
+                guard free.contains(cell) else { continue }
+                free.remove(cell)
+                let partner = orthogonalSteps.compactMap { step -> CellIndex? in
+                    let next = CellIndex(row: cell.row + step.0, column: cell.column + step.1)
+                    guard free.contains(next), operationFits([cell, next], solution: solution, rules: rules) else { return nil }
+                    return next
+                }.min(by: isBefore)
+                if let partner {
+                    free.remove(partner)
+                    groups.append([cell, partner])
+                } else {
+                    groups.append([cell])
+                }
             }
         }
         var built: [Cage] = []

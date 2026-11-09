@@ -65,7 +65,7 @@ struct OperatorRulesEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Operators")
                 .font(.headline)
-            Text("New games use the operations you leave on. At least one stays selected.")
+            Text("New games use the operations you leave on. At least one stays selected, and division cannot be the only one.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -91,6 +91,13 @@ struct OperatorRulesEditor: View {
             Text("The daily puzzle always shows all four operations.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+        .onAppear {
+            let fixed = rules.normalized
+            allowAdd = fixed.add
+            allowSubtract = fixed.subtract
+            allowMultiply = fixed.multiply
+            allowDivide = fixed.divide
         }
     }
 
@@ -118,7 +125,7 @@ struct OperatorRulesEditor: View {
     private func toggle(_ operation: CageOperation) {
         var next = rules
         next.set(operation, enabled: !next.allows(operation))
-        guard !next.enabledOperations.isEmpty else { return }
+        guard !next.enabledOperations.isEmpty, !next.isDivideOnly else { return }
         allowAdd = next.add
         allowSubtract = next.subtract
         allowMultiply = next.multiply

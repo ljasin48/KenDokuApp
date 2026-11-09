@@ -368,7 +368,7 @@ struct GamePlayView: View {
             multiply: allowMultiply,
             divide: allowDivide,
             hidesOperators: hideOperators
-        )
+        ).normalized
     }
 
     private var statusTitle: String {
