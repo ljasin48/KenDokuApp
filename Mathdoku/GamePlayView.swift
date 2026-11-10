@@ -164,16 +164,16 @@ struct GamePlayView: View {
         }
     }
 
-    /// Landscape, including the closed Duo, keeps the controls beside the board so the grid can use the height.
+    /// Landscape, including the closed outer display, keeps the controls beside the board so the grid can use the height.
     private func prefersSideControls(in size: CGSize) -> Bool {
         guard size.width > size.height else { return false }
         let column = sideColumnWidth(for: size.width)
-        let boardSide = min(size.width - column - 48, size.height - 64)
-        return boardSide >= 220
+        let boardSide = min(size.width - column - 24, size.height - 28)
+        return boardSide >= 160
     }
 
     private func sideColumnWidth(for width: CGFloat) -> CGFloat {
-        width >= 900 ? 208 : 164
+        width >= 900 ? 248 : 200
     }
 
     private func stackedPlayfield(_ puzzle: Puzzle) -> some View {
@@ -192,21 +192,22 @@ struct GamePlayView: View {
 
     private func widePlayfield(_ puzzle: Puzzle, in size: CGSize) -> some View {
         let column = sideColumnWidth(for: size.width)
-        return VStack(spacing: 12) {
+        return VStack(spacing: 6) {
             statusBar
             GeometryReader { proxy in
-                let side = max(0, min(proxy.size.width - column - 16, proxy.size.height))
-                HStack(alignment: .center, spacing: 16) {
+                let side = max(0, min(proxy.size.width - column - 8, proxy.size.height))
+                HStack(alignment: .center, spacing: 0) {
                     board(puzzle)
                         .frame(width: side, height: side)
+                        .frame(maxWidth: .infinity)
                     sideControls(size: puzzle.size, height: proxy.size.height)
                         .frame(width: column, height: proxy.size.height)
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -224,48 +225,53 @@ struct GamePlayView: View {
     }
 
     private func sideControls(size: Int, height: CGFloat) -> some View {
-        let numberRows = CGFloat((size + 1) / 2)
-        let toolCount: CGFloat = 4
-        let gridSpacing: CGFloat = 6
-        let toolSpacing: CGFloat = 6
-        let sectionSpacing: CGFloat = 8
-        let gaps = gridSpacing * max(0, numberRows - 1) + sectionSpacing + toolSpacing * (toolCount - 1)
-        let usable = max(0, height - gaps)
-        let share = usable / (numberRows + toolCount)
-        let toolHeight = min(48, share)
-        let numberHeight = min(46, (usable - toolHeight * toolCount) / numberRows)
-        return VStack(spacing: sectionSpacing) {
-            LazyVGrid(
-                columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
-                spacing: gridSpacing
-            ) {
+        let spacing: CGFloat = 6
+        let numberCount = CGFloat(max(size, 1))
+        let numberHeight = max(0, (height - spacing * (numberCount - 1)) / numberCount)
+        return HStack(alignment: .center, spacing: 8) {
+            VStack(spacing: spacing) {
                 ForEach(1...size, id: \.self) { number in
                     numberButton(number, height: numberHeight)
                 }
             }
-            VStack(spacing: toolSpacing) {
-                toolButton(notesMode ? "Notes On" : "Notes", systemImage: notesMode ? "pencil.circle.fill" : "pencil", height: toolHeight) {
-                    notesMode.toggle()
-                }
-                toolButton(
-                    "Undo",
-                    systemImage: "arrow.uturn.backward",
-                    height: toolHeight,
-                    isEnabled: canUndo
-                ) {
-                    undo()
-                }
-                toolButton("Erase", systemImage: "delete.left", height: toolHeight) {
-                    erase()
-                }
-                .disabled(didFinish)
-                toolButton("Hint", systemImage: "lightbulb", height: toolHeight) {
-                    useHint()
-                }
-                .disabled(didFinish)
-            }
+            .frame(maxWidth: .infinity)
+            toolColumn(height: height)
+                .frame(maxWidth: .infinity)
         }
         .frame(maxHeight: .infinity, alignment: .center)
+    }
+
+    private func toolColumn(height: CGFloat?) -> some View {
+        let spacing: CGFloat = 6
+        let toolHeight: CGFloat = {
+            guard let height else { return 48 }
+            return max(0, (height - spacing * 3) / 4)
+        }()
+        return VStack(spacing: spacing) {
+            toolButton(
+                notesMode ? "Notes On" : "Notes",
+                systemImage: notesMode ? "pencil.circle.fill" : "pencil",
+                height: toolHeight
+            ) {
+                notesMode.toggle()
+            }
+            toolButton(
+                "Undo",
+                systemImage: "arrow.uturn.backward",
+                height: toolHeight,
+                isEnabled: canUndo
+            ) {
+                undo()
+            }
+            toolButton("Erase", systemImage: "delete.left", height: toolHeight) {
+                erase()
+            }
+            .disabled(didFinish)
+            toolButton("Hint", systemImage: "lightbulb", height: toolHeight) {
+                useHint()
+            }
+            .disabled(didFinish)
+        }
     }
 
     private var statusBar: some View {
@@ -282,25 +288,11 @@ struct GamePlayView: View {
     }
 
     private func statusLine(seconds: Int) -> some View {
-        let report = puzzle.map(analysis(for:)) ?? .empty
-        let remaining = (puzzle?.size ?? launch.size) * (puzzle?.size ?? launch.size) - report.filledCount
-        return HStack {
-            Text(statusTitle)
-            Spacer()
-            if didFinish {
-                Text("Solved")
-                    .foregroundStyle(theme.accent)
-            } else if hasHighlightedMistake(report) {
-                Text("Check highlighted cells")
-                    .foregroundStyle(theme.accent)
-            } else {
-                Text("\(remaining) left")
-            }
-            Text(Self.clock(seconds))
-                .monospacedDigit()
-        }
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.secondary)
+        Text(Self.clock(seconds))
+            .monospacedDigit()
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
     }
 
     private func numberPad(size: Int) -> some View {
@@ -443,28 +435,9 @@ struct GamePlayView: View {
         ).normalized
     }
 
-    private var statusTitle: String {
-        if launch.isDaily { return "Today" }
-        if puzzle?.rules.hidesOperators == true { return "No-op" }
-        return launch.difficulty.title
-    }
-
     private func analysis(for puzzle: Puzzle) -> BoardAnalysis {
         guard entries.count == puzzle.size else { return .empty }
         return MathdokuRules.analyze(entries: entries, puzzle: puzzle)
-    }
-
-    private func hasHighlightedMistake(_ report: BoardAnalysis) -> Bool {
-        guard let puzzle, mistakeHighlight != .off, entries.count == puzzle.size else { return false }
-        for row in 0..<puzzle.size where entries[row].count == puzzle.size {
-            for column in 0..<puzzle.size {
-                let cell = CellIndex(row: row, column: column)
-                if mistakeHighlight.marks(cell, entries: entries, puzzle: puzzle, analysis: report) {
-                    return true
-                }
-            }
-        }
-        return false
     }
 
     private func loadPuzzle() async {

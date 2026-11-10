@@ -150,12 +150,10 @@ struct LandingView: View {
         VStack(spacing: compact ? 2 : 6) {
             Text("Mathdoku")
                 .font(.system(size: compact ? 34 : 48, weight: .bold, design: .rounded))
-            if !compact {
-                Text("Arithmetic Sudoku")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
+            Text("Arithmetic Sudoku")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
     }
 

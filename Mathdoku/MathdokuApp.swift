@@ -34,12 +34,12 @@ struct MathdokuApp: App {
 }
 
 #if os(iOS)
-/// Portrait only for a scene whose hinge is closed (the outer screen). The inner screen keeps the normal mask.
+/// The outer screen rotates with the phone, same as the inner screen.
 enum ClosedDuoOrientation {
     private static var closedSceneIDs = Set<ObjectIdentifier>()
 
     static func mask(for scene: UIWindowScene) -> UIInterfaceOrientationMask {
-        closedSceneIDs.contains(ObjectIdentifier(scene)) ? .portrait : unlockedMask(for: scene)
+        unlockedMask(for: scene)
     }
 
     static func update(scene: UIWindowScene, closed: Bool) {
