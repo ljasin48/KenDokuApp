@@ -1,18 +1,18 @@
 //
 //  Puzzle.swift
-//  KenKen
+//  KenDoku
 //
 //  Created by Logan Jasin on 11/7/26.
 //
 
 import Foundation
 
-nonisolated struct CellIndex: Hashable, Sendable {
+nonisolated struct CellIndex: Hashable, Sendable, Codable {
     var row: Int
     var column: Int
 }
 
-nonisolated enum Difficulty: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum Difficulty: String, CaseIterable, Identifiable, Sendable, Codable {
     case easy
     case medium
     case hard
@@ -62,7 +62,7 @@ nonisolated enum Difficulty: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-nonisolated enum CageOperation: String, CaseIterable, Identifiable, Hashable, Sendable {
+nonisolated enum CageOperation: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
     case add
     case subtract
     case multiply
@@ -98,7 +98,7 @@ nonisolated enum CageOperation: String, CaseIterable, Identifiable, Hashable, Se
 }
 
 /// Which operations a puzzle may use, and whether those symbols are shown.
-nonisolated struct OperatorRules: Sendable, Equatable, Hashable {
+nonisolated struct OperatorRules: Sendable, Equatable, Hashable, Codable {
     var add: Bool
     var subtract: Bool
     var multiply: Bool
@@ -160,7 +160,7 @@ nonisolated struct OperatorRules: Sendable, Equatable, Hashable {
     }
 }
 
-nonisolated struct Cage: Identifiable, Sendable {
+nonisolated struct Cage: Identifiable, Sendable, Codable {
     let id: Int
     let cells: [CellIndex]
     let operation: CageOperation?
@@ -172,7 +172,7 @@ nonisolated struct Cage: Identifiable, Sendable {
     }
 }
 
-nonisolated struct Puzzle: Sendable {
+nonisolated struct Puzzle: Sendable, Codable {
     let size: Int
     let cages: [Cage]
     let solution: [[Int]]
@@ -198,6 +198,35 @@ nonisolated struct Puzzle: Sendable {
         }
         cageIDs = ids
         clues = clueLabels
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case size, cages, solution, rules
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let size = try container.decode(Int.self, forKey: .size)
+        let cages = try container.decode([Cage].self, forKey: .cages)
+        let solution = try container.decode([[Int]].self, forKey: .solution)
+        let rules = try container.decode(OperatorRules.self, forKey: .rules)
+        self.init(size: size, cages: cages, solution: solution, rules: rules)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(size, forKey: .size)
+        try container.encode(cages, forKey: .cages)
+        try container.encode(solution, forKey: .solution)
+        try container.encode(rules, forKey: .rules)
+    }
+
+    /// The same cages with the corner symbol shown or hidden. Generation does not depend on this flag.
+    func shown(hidingOperators: Bool) -> Puzzle {
+        guard rules.hidesOperators != hidingOperators else { return self }
+        var shownRules = rules
+        shownRules.hidesOperators = hidingOperators
+        return Puzzle(size: size, cages: cages, solution: solution, rules: shownRules)
     }
 
     /// A one-cell cage is fixed to its target, so that number can be filled in immediately.
@@ -237,7 +266,61 @@ nonisolated struct BoardAnalysis: Equatable, Sendable {
     )
 }
 
-nonisolated enum KenKenRules {
+/// Which entered numbers are marked while a puzzle is in play.
+nonisolated enum MistakeHighlight: String, CaseIterable, Identifiable, Sendable {
+    /// No cells are marked.
+    case off
+    /// A finished cage whose numbers miss its target.
+    case arithmetic
+    /// An entered number that differs from the solution in that cell.
+    case all
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .off: "Off"
+        case .arithmetic: "Arithmetic only"
+        case .all: "All"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .off:
+            "No cells are marked."
+        case .arithmetic:
+            "Mark a finished cage when its numbers miss the target."
+        case .all:
+            "Mark a number that does not match the solution in that cell."
+        }
+    }
+
+    func marks(
+        _ cell: CellIndex,
+        entries: [[Int?]],
+        puzzle: Puzzle,
+        analysis: BoardAnalysis
+    ) -> Bool {
+        switch self {
+        case .off:
+            return false
+        case .arithmetic:
+            guard cell.row >= 0, cell.column >= 0,
+                  cell.row < puzzle.size, cell.column < puzzle.size else { return false }
+            let cageID = puzzle.cageIDs[cell.row][cell.column]
+            return analysis.brokenCageIDs.contains(cageID)
+        case .all:
+            guard cell.row >= 0, cell.column >= 0,
+                  cell.row < entries.count, cell.column < entries[cell.row].count,
+                  cell.row < puzzle.solution.count, cell.column < puzzle.solution[cell.row].count,
+                  let value = entries[cell.row][cell.column] else { return false }
+            return value != puzzle.solution[cell.row][cell.column]
+        }
+    }
+}
+
+nonisolated enum KenDokuRules {
     static func isSatisfied(values: [Int], operation: CageOperation?, target: Int) -> Bool {
         guard !values.isEmpty else { return false }
 

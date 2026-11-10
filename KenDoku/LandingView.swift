@@ -1,6 +1,6 @@
 //
 //  LandingView.swift
-//  KenKen
+//  KenDoku
 //
 //  Created by Logan Jasin on 11/7/26.
 //
@@ -16,7 +16,7 @@ enum HomeRoute: Hashable {
 
     var title: String {
         switch self {
-        case .newGame: "New Game"
+        case .newGame(let launch): launch.isDaily ? "Daily Puzzle" : "New Game"
         case .howToPlay: "How to Play"
         case .dailyPuzzle: "Daily Puzzle"
         case .statistics: "Statistics"
@@ -92,9 +92,12 @@ struct LandingView: View {
     let startGame: (GameLaunch) -> Void
 
     @Environment(\.appTheme) private var theme
+    @Environment(ActiveGame.self) private var activeGame
+    @Environment(PlayerStats.self) private var stats
+    @State private var confirmReplace = false
+    @State private var pendingLaunch: GameLaunch?
     @AppStorage(GameSettings.size) private var size = 4
     @AppStorage(GameSettings.difficulty) private var difficultyRaw = Difficulty.medium.rawValue
-    @AppStorage(GameSettings.highlightMistakes) private var highlightMistakes = true
     @AppStorage(GameSettings.allowAdd) private var allowAdd = true
     @AppStorage(GameSettings.allowSubtract) private var allowSubtract = true
     @AppStorage(GameSettings.allowMultiply) private var allowMultiply = true
@@ -115,6 +118,16 @@ struct LandingView: View {
         #if !os(macOS)
         .toolbar(.hidden, for: .navigationBar)
         #endif
+        .confirmationDialog("Replace your current game?", isPresented: $confirmReplace, titleVisibility: .visible) {
+            Button("Replace", role: .destructive) {
+                if let pendingLaunch {
+                    startGame(pendingLaunch)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The puzzle you were playing will be discarded.")
+        }
     }
 
     private func page(compact: Bool) -> some View {
@@ -126,7 +139,7 @@ struct LandingView: View {
             Spacer(minLength: gap)
             VStack(spacing: spacing) {
                 menu(spacing: spacing, rowPadding: compact ? 8 : 14)
-                startButton(rowPadding: compact ? 8 : 14)
+                gameActions(rowPadding: compact ? 8 : 14)
             }
         }
         .padding(.horizontal, 20)
@@ -177,20 +190,30 @@ struct LandingView: View {
         .accessibilityHint("Opens game settings")
     }
 
-    private func startButton(rowPadding: CGFloat) -> some View {
-        Button {
-            startGame(GameLaunch.random(size: resolvedSize, difficulty: difficulty))
-        } label: {
-            ZStack {
-                VStack(spacing: 2) {
-                    Text(" ").font(.headline)
-                    Text(" ").font(.subheadline)
-                }
-                .hidden()
-                .accessibilityHidden(true)
+    @ViewBuilder
+    private func gameActions(rowPadding: CGFloat) -> some View {
+        if let game = activeGame.game {
+            HStack(spacing: 12) {
+                resumeButton(game, rowPadding: rowPadding)
+                newGameButton(rowPadding: rowPadding)
+            }
+        } else {
+            startButton(rowPadding: rowPadding)
+        }
+    }
 
-                Label("Start Game", systemImage: "play.fill")
+    private func resumeButton(_ game: SavedGame, rowPadding: CGFloat) -> some View {
+        Button {
+            startGame(game.launch)
+        } label: {
+            VStack(spacing: 2) {
+                Text("Resume")
                     .font(.headline)
+                Text(game.summaryLine)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 16)
@@ -198,7 +221,58 @@ struct LandingView: View {
         }
         .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.tint(theme.accent).interactive(), cornerRadius: 22))
         .buttonSizing(.flexible)
+        .accessibilityHint("Continues the saved puzzle")
+    }
+
+    private func newGameButton(rowPadding: CGFloat) -> some View {
+        Button {
+            begin(GameLaunch.random(size: resolvedSize, difficulty: difficulty))
+        } label: {
+            actionLabel("New Game", systemImage: "plus")
+                .padding(.horizontal, 16)
+                .padding(.vertical, rowPadding)
+        }
+        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 22))
+        .buttonSizing(.flexible)
+        .accessibilityHint("Starts a puzzle and discards the saved one")
+    }
+
+    private func startButton(rowPadding: CGFloat) -> some View {
+        Button {
+            begin(GameLaunch.random(size: resolvedSize, difficulty: difficulty))
+        } label: {
+            actionLabel("Start Game", systemImage: "play.fill")
+                .padding(.horizontal, 16)
+                .padding(.vertical, rowPadding)
+        }
+        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.tint(theme.accent).interactive(), cornerRadius: 22))
+        .buttonSizing(.flexible)
         .accessibilityHint("Starts a \(resolvedSize) by \(resolvedSize) \(difficulty.title) puzzle")
+    }
+
+    private func actionLabel(_ title: String, systemImage: String) -> some View {
+        ZStack {
+            VStack(spacing: 2) {
+                Text(" ").font(.headline)
+                Text(" ").font(.subheadline)
+            }
+            .hidden()
+            .accessibilityHidden(true)
+
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func begin(_ launch: GameLaunch) {
+        if launch.isDaily, stats.completedDailyToday { return }
+        if let game = activeGame.game, !game.matches(launch) {
+            pendingLaunch = launch
+            confirmReplace = true
+        } else {
+            startGame(launch)
+        }
     }
 
     private var summaryLine: String {
@@ -229,36 +303,75 @@ struct LandingView: View {
         GlassEffectContainer(spacing: 0) {
             VStack(spacing: spacing) {
                 ForEach(MenuOption.landing) { option in
-                    NavigationLink(value: option.route) {
-                        HStack(spacing: 14) {
-                            Image(systemName: option.symbol)
-                                .font(.body.weight(.semibold))
-                                .frame(width: 28)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(option.title)
-                                    .font(.headline)
-                                Text(option.detail)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-
-                            Spacer(minLength: 8)
-
-                            Image(systemName: "chevron.forward")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
+                    if option.route == .dailyPuzzle {
+                        Button {
+                            begin(GameLaunch.daily())
+                        } label: {
+                            menuLabel(
+                                option,
+                                detail: dailyDetail,
+                                rowPadding: rowPadding,
+                                trailing: stats.completedDailyToday ? "checkmark" : "chevron.forward"
+                            )
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, rowPadding)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 22))
+                        .disabled(stats.completedDailyToday)
+                        .accessibilityHint(
+                            stats.completedDailyToday
+                                ? "Today's puzzle is already completed"
+                                : "Opens today's puzzle"
+                        )
+                    } else {
+                        NavigationLink(value: option.route) {
+                            menuLabel(option, detail: option.detail, rowPadding: rowPadding)
+                        }
+                        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 22))
                     }
-                    .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 22))
                 }
                 settingsCard(rowPadding: rowPadding)
             }
         }
+    }
+
+    private func menuLabel(
+        _ option: MenuOption,
+        detail: String,
+        rowPadding: CGFloat,
+        trailing: String = "chevron.forward"
+    ) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: option.symbol)
+                .font(.body.weight(.semibold))
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(option.title)
+                    .font(.headline)
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: trailing)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, rowPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var dailyDetail: String {
+        if stats.completedDailyToday {
+            return "Completed today"
+        }
+        if activeGame.game?.isTodayDaily == true {
+            return "Continue today's board"
+        }
+        return "One shared board each day"
     }
 }
 
@@ -268,4 +381,6 @@ struct LandingView: View {
             .kendokuScreen()
     }
     .kendokuScreen()
+    .environment(ActiveGame.preview)
+    .environment(PlayerStats.preview)
 }

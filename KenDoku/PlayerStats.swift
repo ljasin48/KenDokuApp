@@ -1,6 +1,6 @@
 //
 //  PlayerStats.swift
-//  KenKen
+//  KenDoku
 //
 //  Created by Logan Jasin on 11/7/26.
 //
@@ -23,6 +23,10 @@ final class PlayerStats {
     @ObservationIgnored private let storageKey = "kendoku.stats"
 
     private(set) var record: PlayerRecord
+
+    var completedDailyToday: Bool {
+        record.lastDailyDay == DayStamp.string()
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults

@@ -1,6 +1,6 @@
 //
 //  HomeDestinationView.swift
-//  KenKen
+//  KenDoku
 //
 //  Created by Logan Jasin on 11/7/26.
 //
@@ -37,7 +37,7 @@ struct HomeDestinationView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 rule(
-                    title: "One of each number",
+                    title: "Sudoku-like grid",
                     text: "Every row and every column holds 1 through the grid size exactly once. There are no Sudoku boxes."
                 )
                 rule(
@@ -84,4 +84,6 @@ struct HomeDestinationView: View {
             .kendokuScreen()
     }
     .kendokuScreen()
+    .environment(PlayerStats.preview)
+    .environment(ActiveGame.preview)
 }

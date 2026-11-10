@@ -1,6 +1,6 @@
 //
 //  GamePlayView.swift
-//  KenKen
+//  KenDoku
 //
 //  Created by Logan Jasin on 11/7/26.
 //
@@ -11,9 +11,12 @@ struct GamePlayView: View {
     let launch: GameLaunch
 
     @Environment(PlayerStats.self) private var stats
+    @Environment(ActiveGame.self) private var activeGame
+    @Environment(GameDeck.self) private var gameDeck
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.appTheme) private var theme
-    @AppStorage(GameSettings.highlightMistakes) private var highlightMistakes = true
+    @AppStorage(GameSettings.mistakeHighlight) private var highlightRaw = ""
     @AppStorage(GameSettings.allowAdd) private var allowAdd = true
     @AppStorage(GameSettings.allowSubtract) private var allowSubtract = true
     @AppStorage(GameSettings.allowMultiply) private var allowMultiply = true
@@ -33,69 +36,109 @@ struct GamePlayView: View {
     @State private var usedHint = false
     @State private var hideWinCard = false
     @State private var startedAt: Date?
+    @State private var bankedSeconds = 0
     @State private var frozenSeconds = 0
     @State private var confirmClear = false
     @State private var confirmNew = false
 
     var body: some View {
+        playScreen
+    }
+
+    private var playScreen: some View {
+        dialogs(presence(storedChanges(chrome(playStack))))
+    }
+
+    private func chrome<V: View>(_ view: V) -> some View {
+        view
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle(launch.isDaily ? "Daily Puzzle" : "KenDoku")
+            #if os(iOS) || os(visionOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar { toolbar }
+            #if os(iOS)
+            .sensoryFeedback(.success, trigger: didFinish)
+            #endif
+            .modifier(PlayKeyboardModifier(
+                size: launch.size,
+                onNumber: pressNumber,
+                onErase: erase,
+                onNudge: { row, column in
+                    nudge(row: row, column: column)
+                }
+            ))
+    }
+
+    private func storedChanges<V: View>(_ view: V) -> some View {
+        view
+            .task(id: loadID) {
+                await loadPuzzle()
+            }
+            .onChange(of: entries) { persistProgress() }
+            .onChange(of: notes) { persistProgress() }
+            .onChange(of: selection) { persistProgress() }
+            .onChange(of: notesMode) { persistProgress() }
+    }
+
+    private func presence<V: View>(_ view: V) -> some View {
+        view
+            .onChange(of: scenePhase) {
+                if scenePhase == .active {
+                    resumeClockIfNeeded()
+                } else {
+                    pauseClock()
+                    persistProgress()
+                }
+            }
+            .onAppear {
+                resumeClockIfNeeded()
+            }
+            .onDisappear {
+                pauseClock()
+                persistProgress()
+            }
+    }
+
+    private func dialogs<V: View>(_ view: V) -> some View {
+        view
+            .confirmationDialog("Clear this board?", isPresented: $confirmClear, titleVisibility: .visible) {
+                Button("Clear Board", role: .destructive, action: clearBoard)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Numbers and notes on this puzzle will be erased.")
+            }
+            .confirmationDialog("Start a new puzzle?", isPresented: $confirmNew, titleVisibility: .visible) {
+                Button("New Puzzle", role: .destructive) { loadID += 1 }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This board will be replaced.")
+            }
+    }
+
+    private func resumeClockIfNeeded() {
+        if startedAt == nil, puzzle != nil, !didFinish, !isLoading {
+            startedAt = .now
+        }
+    }
+
+    private var playStack: some View {
         ZStack {
             KenDokuBackground()
             if isLoading || puzzle == nil {
-                ProgressView("Building a \(launch.size)\u{00D7}\(launch.size)")
+                ProgressView("Generating the board...")
                     .tint(theme.accent)
             } else if let puzzle {
                 playfield(puzzle)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle(launch.isDaily ? "Daily Puzzle" : "\(launch.size)\u{00D7}\(launch.size)")
-        #if os(iOS) || os(visionOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar { toolbar }
-        .task(id: loadID) {
-            await loadPuzzle()
-        }
-        .confirmationDialog("Clear this board?", isPresented: $confirmClear, titleVisibility: .visible) {
-            Button("Clear Board", role: .destructive, action: clearBoard)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Numbers and notes on this puzzle will be erased.")
-        }
-        .confirmationDialog("Start a new puzzle?", isPresented: $confirmNew, titleVisibility: .visible) {
-            Button("New Puzzle", role: .destructive) { loadID += 1 }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This board will be replaced.")
-        }
-        #if os(iOS)
-        .sensoryFeedback(.success, trigger: didFinish)
-        #endif
-        #if os(iOS) || os(macOS) || os(visionOS)
-        .focusable()
-        .focusEffectDisabled()
-        .onKeyPress(characters: .decimalDigits) { press in
-            guard let number = press.characters.first?.wholeNumberValue,
-                  (1...launch.size).contains(number) else { return .ignored }
-            pressNumber(number)
-            return .handled
-        }
-        .onKeyPress(.delete) {
-            erase()
-            return .handled
-        }
-        .onKeyPress(.leftArrow) { nudge(row: 0, column: -1); return .handled }
-        .onKeyPress(.rightArrow) { nudge(row: 0, column: 1); return .handled }
-        .onKeyPress(.upArrow) { nudge(row: -1, column: 0); return .handled }
-        .onKeyPress(.downArrow) { nudge(row: 1, column: 0); return .handled }
-        #endif
     }
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .automatic) {
             Button("Clear", systemImage: "arrow.counterclockwise", action: requestClear)
-                .disabled(puzzle == nil)
+                .disabled(puzzle == nil || dailyIsClosed)
             if !launch.isDaily {
                 Button("New Puzzle", systemImage: "plus", action: requestNewPuzzle)
                     .disabled(isLoading)
@@ -168,13 +211,13 @@ struct GamePlayView: View {
     }
 
     private func board(_ puzzle: Puzzle) -> some View {
-        KenKenBoard(
+        KenDokuBoard(
             puzzle: puzzle,
             entries: entries,
             notes: notes,
             selection: selection,
             analysis: analysis(for: puzzle),
-            showMistakes: highlightMistakes,
+            highlight: mistakeHighlight,
             onSelect: { selection = $0 }
         )
         .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
@@ -204,10 +247,14 @@ struct GamePlayView: View {
                 toolButton(notesMode ? "Notes On" : "Notes", systemImage: notesMode ? "pencil.circle.fill" : "pencil", height: toolHeight) {
                     notesMode.toggle()
                 }
-                toolButton("Undo", systemImage: "arrow.uturn.backward", height: toolHeight) {
+                toolButton(
+                    "Undo",
+                    systemImage: "arrow.uturn.backward",
+                    height: toolHeight,
+                    isEnabled: canUndo
+                ) {
                     undo()
                 }
-                .disabled(undoStack.isEmpty || didFinish)
                 toolButton("Erase", systemImage: "delete.left", height: toolHeight) {
                     erase()
                 }
@@ -223,13 +270,13 @@ struct GamePlayView: View {
 
     private var statusBar: some View {
         Group {
-            if let startedAt {
+            if let startedAt, !didFinish {
                 TimelineView(.periodic(from: startedAt, by: 1)) { context in
-                    let seconds = didFinish ? frozenSeconds : Int(context.date.timeIntervalSince(startedAt))
-                    statusLine(seconds: seconds)
+                    let running = max(0, Int(context.date.timeIntervalSince(startedAt)))
+                    statusLine(seconds: bankedSeconds + running)
                 }
             } else {
-                statusLine(seconds: 0)
+                statusLine(seconds: didFinish ? frozenSeconds : bankedSeconds)
             }
         }
     }
@@ -237,14 +284,13 @@ struct GamePlayView: View {
     private func statusLine(seconds: Int) -> some View {
         let report = puzzle.map(analysis(for:)) ?? .empty
         let remaining = (puzzle?.size ?? launch.size) * (puzzle?.size ?? launch.size) - report.filledCount
-        let conflictCount = report.duplicates.count + report.brokenCageIDs.count
         return HStack {
             Text(statusTitle)
             Spacer()
             if didFinish {
                 Text("Solved")
                     .foregroundStyle(theme.accent)
-            } else if highlightMistakes && conflictCount > 0 {
+            } else if hasHighlightedMistake(report) {
                 Text("Check highlighted cells")
                     .foregroundStyle(theme.accent)
             } else {
@@ -287,10 +333,9 @@ struct GamePlayView: View {
             toolButton(notesMode ? "Notes On" : "Notes", systemImage: notesMode ? "pencil.circle.fill" : "pencil") {
                 notesMode.toggle()
             }
-            toolButton("Undo", systemImage: "arrow.uturn.backward") {
+            toolButton("Undo", systemImage: "arrow.uturn.backward", isEnabled: canUndo) {
                 undo()
             }
-            .disabled(undoStack.isEmpty || didFinish)
             toolButton("Erase", systemImage: "delete.left") {
                 erase()
             }
@@ -302,10 +347,15 @@ struct GamePlayView: View {
         }
     }
 
+    private var canUndo: Bool {
+        !undoStack.isEmpty && !didFinish
+    }
+
     private func toolButton(
         _ title: String,
         systemImage: String,
         height: CGFloat = 48,
+        isEnabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -320,7 +370,14 @@ struct GamePlayView: View {
             .frame(maxWidth: .infinity)
             .frame(height: height)
         }
-        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 12))
+        .buttonStyle(
+            KenDokuGlassButtonStyle(
+                glass: isEnabled ? .regular.interactive() : .regular,
+                cornerRadius: 12
+            )
+        )
+        .opacity(isEnabled ? 1 : 0.4)
+        .disabled(!isEnabled)
     }
 
     private var winCard: some View {
@@ -337,28 +394,43 @@ struct GamePlayView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
-                Button {
+                winButton("Show Board", prominent: false) {
                     hideWinCard = true
-                } label: {
-                    Text("Show Board")
-                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 14))
-
                 if launch.isDaily {
-                    Button("Done", action: dismiss.callAsFunction)
-                        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.tint(Color.accentColor).interactive(), cornerRadius: 14))
-                        .buttonSizing(.flexible)
+                    winButton("Done", prominent: true) {
+                        dismiss()
+                    }
                 } else {
-                    Button("Play Again") { loadID += 1 }
-                        .buttonStyle(KenDokuGlassButtonStyle(glass: .regular.tint(Color.accentColor).interactive(), cornerRadius: 14))
-                        .buttonSizing(.flexible)
+                    winButton("Play Again", prominent: true) {
+                        loadID += 1
+                    }
                 }
             }
             .padding(24)
             .frame(maxWidth: 320)
             .glassEffect(.regular, in: .rect(cornerRadius: 28))
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func winButton(_ title: String, prominent: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(Color.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(prominent ? Color.accentColor : Color.white.opacity(0.16))
+                }
+        }
+        .buttonStyle(KenDokuHitButtonStyle())
+    }
+
+    private var mistakeHighlight: MistakeHighlight {
+        GameSettings.resolvedMistakeHighlight(stored: highlightRaw)
     }
 
     private var selectedRules: OperatorRules {
@@ -379,22 +451,91 @@ struct GamePlayView: View {
 
     private func analysis(for puzzle: Puzzle) -> BoardAnalysis {
         guard entries.count == puzzle.size else { return .empty }
-        return KenKenRules.analyze(entries: entries, puzzle: puzzle)
+        return KenDokuRules.analyze(entries: entries, puzzle: puzzle)
+    }
+
+    private func hasHighlightedMistake(_ report: BoardAnalysis) -> Bool {
+        guard let puzzle, mistakeHighlight != .off, entries.count == puzzle.size else { return false }
+        for row in 0..<puzzle.size where entries[row].count == puzzle.size {
+            for column in 0..<puzzle.size {
+                let cell = CellIndex(row: row, column: column)
+                if mistakeHighlight.marks(cell, entries: entries, puzzle: puzzle, analysis: report) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private func loadPuzzle() async {
         if installedID == loadID, puzzle != nil { return }
         let token = loadID
+        if token == 0, restore(token: token) { return }
+        if launch.isDaily, stats.completedDailyToday {
+            isLoading = false
+            dismiss()
+            return
+        }
+
+        // A random game can use the board built while the app was open. Daily and seeded boards stay on their own seed.
+        if launch.seed == nil {
+            let spec = GameDeck.Spec(size: launch.size, difficulty: launch.difficulty, rules: selectedRules)
+            if let ready = gameDeck.takeIfReady(spec) {
+                activeGame.clear()
+                install(ready.shown(hidingOperators: selectedRules.hidesOperators), token: token)
+                return
+            }
+            isLoading = true
+            puzzle = nil
+            activeGame.clear()
+            let generated = await gameDeck.puzzle(for: spec)
+            guard !Task.isCancelled, token == loadID else { return }
+            install(generated.shown(hidingOperators: selectedRules.hidesOperators), token: token)
+            return
+        }
+
         isLoading = true
+        puzzle = nil
+        activeGame.clear()
         let size = launch.size
         let difficulty = launch.difficulty
         let seed = launch.seed
         let rules = launch.isDaily ? OperatorRules.standard : selectedRules
         let generated = await Task.detached {
-            KenKenGenerator.generate(size: size, difficulty: difficulty, seed: seed, rules: rules)
+            KenDokuGenerator.generate(size: size, difficulty: difficulty, seed: seed, rules: rules)
         }.value
         guard !Task.isCancelled, token == loadID else { return }
         install(generated, token: token)
+    }
+
+    private func restore(token: Int) -> Bool {
+        guard let saved = activeGame.game, saved.matches(launch), saved.isPlayable else { return false }
+        let restored = saved.puzzle
+        puzzle = restored
+        entries = alignedEntries(saved.entries, puzzle: restored)
+        notes = alignedNotes(saved.notes, size: restored.size)
+        if let selection = saved.selection,
+           selection.row >= 0, selection.column >= 0,
+           selection.row < restored.size, selection.column < restored.size {
+            self.selection = selection
+        } else {
+            selection = firstEmpty(in: restored) ?? CellIndex(row: 0, column: 0)
+        }
+        undoStack = saved.undo.compactMap { move in
+            guard move.row >= 0, move.column >= 0,
+                  move.row < restored.size, move.column < restored.size else { return nil }
+            return Move(row: move.row, column: move.column, value: move.value, notes: move.notes)
+        }
+        notesMode = saved.notesMode
+        didFinish = false
+        usedHint = saved.usedHint
+        hideWinCard = false
+        bankedSeconds = max(0, saved.elapsedSeconds)
+        startedAt = .now
+        frozenSeconds = 0
+        installedID = token
+        isLoading = false
+        return true
     }
 
     private func install(_ generated: Puzzle, token: Int) {
@@ -407,11 +548,65 @@ struct GamePlayView: View {
         didFinish = false
         usedHint = false
         hideWinCard = false
+        bankedSeconds = 0
         startedAt = .now
         frozenSeconds = 0
         installedID = token
         isLoading = false
         finishIfNeeded()
+        persistProgress()
+    }
+
+    private func alignedEntries(_ saved: [[Int?]], puzzle: Puzzle) -> [[Int?]] {
+        var grid = puzzle.startingEntries()
+        guard saved.count == puzzle.size else { return grid }
+        for row in 0..<puzzle.size {
+            guard saved[row].count == puzzle.size else { continue }
+            for column in 0..<puzzle.size {
+                let cell = CellIndex(row: row, column: column)
+                if puzzle.isGiven(cell) { continue }
+                grid[row][column] = saved[row][column]
+            }
+        }
+        return grid
+    }
+
+    private func alignedNotes(_ saved: [[Set<Int>]], size: Int) -> [[Set<Int>]] {
+        guard saved.count == size, saved.allSatisfy({ $0.count == size }) else {
+            return Self.blankNotes(size: size)
+        }
+        return saved
+    }
+
+    private func elapsedSeconds(at date: Date = .now) -> Int {
+        guard let startedAt else { return bankedSeconds }
+        return bankedSeconds + max(0, Int(date.timeIntervalSince(startedAt)))
+    }
+
+    private func pauseClock() {
+        guard !didFinish else { return }
+        bankedSeconds = elapsedSeconds()
+        startedAt = nil
+    }
+
+    private func persistProgress() {
+        guard !didFinish, !isLoading, let puzzle else { return }
+        let saved = SavedGame(
+            size: launch.size,
+            difficulty: launch.difficulty,
+            seed: launch.seed,
+            isDaily: launch.isDaily,
+            id: launch.id,
+            puzzle: puzzle,
+            entries: entries,
+            notes: notes,
+            selection: selection,
+            undo: undoStack.map { SavedMove(row: $0.row, column: $0.column, value: $0.value, notes: $0.notes) },
+            notesMode: notesMode,
+            usedHint: usedHint,
+            elapsedSeconds: elapsedSeconds()
+        )
+        activeGame.save(saved)
     }
 
     private func pressNumber(_ number: Int) {
@@ -438,7 +633,7 @@ struct GamePlayView: View {
     }
 
     private func toggleNote(_ number: Int, at cell: CellIndex) {
-        guard !isGiven(cell) else { return }
+        guard !didFinish, !isGiven(cell) else { return }
         var cellNotes = notes[cell.row][cell.column]
         let previous = cellNotes
         if cellNotes.contains(number) {
@@ -486,8 +681,10 @@ struct GamePlayView: View {
         guard analysis(for: puzzle).isSolved else { return }
         didFinish = true
         hideWinCard = false
-        frozenSeconds = Int(Date().timeIntervalSince(startedAt ?? .now))
+        frozenSeconds = elapsedSeconds()
+        startedAt = nil
         stats.recordWin(seconds: frozenSeconds, launch: launch, countsForBestTime: !usedHint)
+        activeGame.clear()
     }
 
     private func firstEmpty(in puzzle: Puzzle) -> CellIndex? {
@@ -507,8 +704,12 @@ struct GamePlayView: View {
         selection = CellIndex(row: row, column: column)
     }
 
+    private var dailyIsClosed: Bool {
+        launch.isDaily && (didFinish || stats.completedDailyToday)
+    }
+
     private func requestClear() {
-        guard puzzle != nil else { return }
+        guard puzzle != nil, !dailyIsClosed else { return }
         if didFinish || hasProgress {
             confirmClear = true
         }
@@ -533,7 +734,7 @@ struct GamePlayView: View {
     }
 
     private func clearBoard() {
-        guard let puzzle else { return }
+        guard let puzzle, !dailyIsClosed else { return }
         entries = puzzle.startingEntries()
         notes = Self.blankNotes(size: puzzle.size)
         undoStack = []
@@ -541,6 +742,7 @@ struct GamePlayView: View {
         didFinish = false
         usedHint = false
         hideWinCard = false
+        bankedSeconds = 0
         startedAt = .now
         frozenSeconds = 0
         selection = firstEmpty(in: puzzle) ?? CellIndex(row: 0, column: 0)
@@ -567,13 +769,13 @@ private struct Move {
     var notes: Set<Int>
 }
 
-private struct KenKenBoard: View {
+private struct KenDokuBoard: View {
     let puzzle: Puzzle
     let entries: [[Int?]]
     let notes: [[Set<Int>]]
     let selection: CellIndex?
     let analysis: BoardAnalysis
-    let showMistakes: Bool
+    let highlight: MistakeHighlight
     let onSelect: (CellIndex) -> Void
 
     @Environment(\.appTheme) private var theme
@@ -739,10 +941,7 @@ private struct KenKenBoard: View {
     }
 
     private func isConflict(_ cell: CellIndex) -> Bool {
-        guard showMistakes else { return false }
-        if analysis.duplicates.contains(cell) { return true }
-        let cageID = puzzle.cageIDs[cell.row][cell.column]
-        return analysis.brokenCageIDs.contains(cageID)
+        highlight.marks(cell, entries: entries, puzzle: puzzle, analysis: analysis)
     }
 
     private func label(for cell: CellIndex) -> String {
@@ -764,6 +963,37 @@ private struct KenKenBoard: View {
     }
 }
 
+private struct PlayKeyboardModifier: ViewModifier {
+    var size: Int
+    var onNumber: (Int) -> Void
+    var onErase: () -> Void
+    var onNudge: (Int, Int) -> Void
+
+    func body(content: Content) -> some View {
+        #if os(iOS) || os(macOS) || os(visionOS)
+        content
+            .focusable()
+            .focusEffectDisabled()
+            .onKeyPress(characters: .decimalDigits) { press in
+                guard let number = press.characters.first?.wholeNumberValue,
+                      (1...size).contains(number) else { return .ignored }
+                onNumber(number)
+                return .handled
+            }
+            .onKeyPress(.delete) {
+                onErase()
+                return .handled
+            }
+            .onKeyPress(.leftArrow) { onNudge(0, -1); return .handled }
+            .onKeyPress(.rightArrow) { onNudge(0, 1); return .handled }
+            .onKeyPress(.upArrow) { onNudge(-1, 0); return .handled }
+            .onKeyPress(.downArrow) { onNudge(1, 0); return .handled }
+        #else
+        content
+        #endif
+    }
+}
+
 #Preview {
     NavigationStack {
         GamePlayView(launch: GameLaunch(size: 4, difficulty: .easy, seed: 1, isDaily: false, id: 1))
@@ -771,4 +1001,6 @@ private struct KenKenBoard: View {
     }
     .kendokuScreen()
     .environment(PlayerStats.preview)
+    .environment(ActiveGame.preview)
+    .environment(GameDeck.preview)
 }

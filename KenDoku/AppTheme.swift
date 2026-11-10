@@ -1,6 +1,6 @@
 //
 //  AppTheme.swift
-//  KenKen
+//  KenDoku
 //
 //  Created by Logan Jasin on 11/8/26.
 //
@@ -38,10 +38,6 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    var colorScheme: ColorScheme {
-        self == .daylight ? .light : .dark
-    }
-
     var accent: Color {
         switch self {
         case .kendoku:
@@ -71,9 +67,9 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
             ]
         case .daylight:
             [
-                Color(red: 0.98, green: 0.95, blue: 0.88),
-                Color(red: 0.93, green: 0.80, blue: 0.64),
-                Color(red: 0.86, green: 0.60, blue: 0.44)
+                Color(red: 0.16, green: 0.09, blue: 0.06),
+                Color(red: 0.36, green: 0.18, blue: 0.12),
+                Color(red: 0.48, green: 0.26, blue: 0.16)
             ]
         case .grove:
             [
@@ -88,10 +84,8 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .kendoku:
             Color.white.opacity(0.05)
-        case .space, .grove:
+        case .space, .daylight, .grove:
             Color.white.opacity(0.06)
-        case .daylight:
-            Color.black.opacity(0.06)
         }
     }
 

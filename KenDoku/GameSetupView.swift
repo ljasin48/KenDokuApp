@@ -1,6 +1,6 @@
 //
 //  GameSetupView.swift
-//  KenKen
+//  KenDoku
 //
 //  Created by Logan Jasin on 11/7/26.
 //
@@ -10,7 +10,20 @@ import SwiftUI
 enum GameSettings {
     static let size = "kendoku.size"
     static let difficulty = "kendoku.difficulty"
+    static let mistakeHighlight = "kendoku.mistakeHighlight"
+    /// Older builds stored this as a Bool. It is read only until a mode is chosen.
     static let highlightMistakes = "kendoku.highlightMistakes"
+
+    static func resolvedMistakeHighlight(stored: String) -> MistakeHighlight {
+        if let mode = MistakeHighlight(rawValue: stored) {
+            return mode
+        }
+        if let enabled = UserDefaults.standard.object(forKey: highlightMistakes) as? Bool {
+            return enabled ? .arithmetic : .off
+        }
+        return .arithmetic
+    }
+
     static let allowAdd = "kendoku.allowAdd"
     static let allowSubtract = "kendoku.allowSubtract"
     static let allowMultiply = "kendoku.allowMultiply"
@@ -30,7 +43,7 @@ struct GameLaunch: Hashable {
 
     static func daily(on date: Date = .now) -> GameLaunch {
         let seed = DayStamp.seed(from: date)
-        return GameLaunch(size: 6, difficulty: .hard, seed: seed, isDaily: true, id: seed)
+        return GameLaunch(size: 6, difficulty: .medium, seed: seed, isDaily: true, id: seed)
     }
 
     static func random(size: Int, difficulty: Difficulty) -> GameLaunch {

@@ -1,6 +1,6 @@
 //
-//  KenKenGenerator.swift
-//  KenKen
+//  KenDokuGenerator.swift
+//  KenDoku
 //
 //  Created by Logan Jasin on 11/7/26.
 //
@@ -24,7 +24,7 @@ nonisolated struct SplitMix64: RandomNumberGenerator, Sendable {
     }
 }
 
-nonisolated enum KenKenGenerator {
+nonisolated enum KenDokuGenerator {
     static func generate(
         size: Int,
         difficulty: Difficulty,
@@ -71,12 +71,17 @@ nonisolated enum KenKenGenerator {
                     rng: &rng
                 ) else { continue }
                 let puzzle = Puzzle(size: size, cages: cages, solution: solution, rules: rules)
-                guard KenKenRules.solutionIsValid(puzzle) else { continue }
+                guard KenDokuRules.solutionIsValid(puzzle) else { continue }
                 guard puzzle.cages.contains(where: { $0.cells.count > 1 }) else { continue }
                 playable = puzzle
 
                 // Stop after a second solution. A unique board is the one we built.
-                let outcome = KenKenSolver.countSolutions(of: puzzle, limit: 2, nodeLimit: nodeLimit)
+                let outcome = KenDokuSolver.countSolutions(
+                    of: puzzle,
+                    limit: 2,
+                    nodeLimit: nodeLimit,
+                    known: solution
+                )
                 if outcome.count == 1 && !outcome.reachedLimit {
                     return puzzle
                 }
@@ -110,8 +115,13 @@ nonisolated enum KenKenGenerator {
             guard let cell = pinCell(between: first, and: second, puzzle: puzzle) else { return nil }
             guard let split = splitOff(cell, in: puzzle, difficulty: difficulty, rng: &rng) else { return nil }
             puzzle = split
-            guard KenKenRules.solutionIsValid(puzzle) else { return nil }
-            let outcome = KenKenSolver.countSolutions(of: puzzle, limit: 2, nodeLimit: 12_000)
+            guard KenDokuRules.solutionIsValid(puzzle) else { return nil }
+            let outcome = KenDokuSolver.countSolutions(
+                of: puzzle,
+                limit: 2,
+                nodeLimit: 12_000,
+                known: puzzle.solution
+            )
             if outcome.count == 1 && !outcome.reachedLimit {
                 return puzzle
             }
@@ -1099,7 +1109,7 @@ nonisolated enum KenKenGenerator {
                 rng: &rng
             ) else { continue }
             let puzzle = Puzzle(size: size, cages: built, solution: solution, rules: rules)
-            if KenKenRules.solutionIsValid(puzzle) {
+            if KenDokuRules.solutionIsValid(puzzle) {
                 return puzzle
             }
         }
@@ -1203,47 +1213,93 @@ nonisolated enum KenKenGenerator {
     }
 }
 
-nonisolated enum KenKenSolver {
+nonisolated enum KenDokuSolver {
     struct Outcome: Equatable, Sendable {
         var count: Int
         var reachedLimit: Bool
         var solutions: [[[Int]]]
     }
 
-    static func countSolutions(of puzzle: Puzzle, limit: Int = 2, nodeLimit: Int = 12_000) -> Outcome {
-        var search = Search(puzzle: puzzle, limit: limit, nodeLimit: nodeLimit)
-        search.explore()
+    /// `known` is a solution already checked by the generator. The search looks for a different one
+    /// and tries those digits first, so a second solution ends the proof early.
+    static func countSolutions(
+        of puzzle: Puzzle,
+        limit: Int = 2,
+        nodeLimit: Int = 12_000,
+        known: [[Int]]? = nil
+    ) -> Outcome {
+        var search = Search(puzzle: puzzle, limit: limit, nodeLimit: nodeLimit, known: known)
+        search.run()
         return Outcome(count: search.count, reachedLimit: search.reachedLimit, solutions: search.solutions)
     }
 
+    /// Exact cage fillings plus row and column masks. Domains stay on the cage, so a node does not copy clues.
     private struct Search {
-        let puzzle: Puzzle
+        let size: Int
         let limit: Int
         let nodeLimit: Int
-        var grid: [[Int]]
+        let knownFlat: [Int]?
+        let knownRows: [[Int]]?
+        var cages: [CageSlot]
+        var grid: [Int]
         var rowMask: [Int]
         var columnMask: [Int]
+        var cellBits: [Int]
+        var cageOf: [Int]
         var count = 0
         var nodes = 0
         var reachedLimit = false
         var solutions: [[[Int]]] = []
+        var undoStack: [Step] = []
 
-        init(puzzle: Puzzle, limit: Int, nodeLimit: Int) {
-            self.puzzle = puzzle
-            self.limit = limit
-            self.nodeLimit = nodeLimit
-            grid = Array(repeating: Array(repeating: 0, count: puzzle.size), count: puzzle.size)
-            rowMask = Array(repeating: 0, count: puzzle.size)
-            columnMask = Array(repeating: 0, count: puzzle.size)
+        struct Step {
+            var cell: Int
+            var cage: Int
+            var removed: Int
         }
 
-        struct Choice {
-            var cell: CellIndex
-            var values: [Int]
+        struct CageSlot {
+            var cells: [Int]
+            var rows: [Int]
+            var cols: [Int]
+            var cellCount: Int
+            var values: [UInt8]
+            var order: [Int]
+            var active: Int
+        }
+
+        init(puzzle: Puzzle, limit: Int, nodeLimit: Int, known: [[Int]]?) {
+            let boardSize = puzzle.size
+            size = boardSize
+            self.limit = limit
+            self.nodeLimit = nodeLimit
+            let cellCount = boardSize * boardSize
+            if let known, known.count == boardSize, known.allSatisfy({ $0.count == boardSize }) {
+                knownFlat = known.flatMap { $0 }
+                knownRows = known
+            } else {
+                knownFlat = nil
+                knownRows = nil
+            }
+            grid = Array(repeating: 0, count: cellCount)
+            rowMask = Array(repeating: 0, count: size)
+            columnMask = Array(repeating: 0, count: size)
+            cellBits = Array(repeating: 0, count: cellCount)
+            cages = Self.makeCages(puzzle: puzzle, size: size)
+            cageOf = Array(repeating: 0, count: cellCount)
+            for index in cages.indices {
+                for cell in cages[index].cells where cell >= 0 && cell < cellCount {
+                    cageOf[cell] = index
+                }
+            }
+        }
+
+        mutating func run() {
+            explore()
         }
 
         mutating func explore() {
-            if count >= limit {
+            if count >= limit || reachedLimit {
                 return
             }
             if nodes >= nodeLimit {
@@ -1252,125 +1308,354 @@ nonisolated enum KenKenSolver {
             }
             nodes += 1
 
-            guard let choice = nextChoice() else {
-                count += 1
-                if solutions.count < limit {
-                    solutions.append(grid)
-                }
+            if !fillBits() {
                 return
             }
-            if choice.values.isEmpty {
+            if !narrowRows() || !narrowColumns() {
                 return
             }
 
-            for value in choice.values {
-                place(value, at: choice.cell)
-                explore()
-                remove(value, at: choice.cell)
-                if count >= limit {
+            var bestCell = -1
+            var bestBits = 0
+            var bestCount = Int.max
+            var empty = 0
+            for cell in 0..<grid.count where grid[cell] == 0 {
+                empty += 1
+                let bits = cellBits[cell]
+                let choices = bits.nonzeroBitCount
+                if choices == 0 {
                     return
                 }
-                if nodes >= nodeLimit {
-                    reachedLimit = true
+                if choices < bestCount {
+                    bestCount = choices
+                    bestBits = bits
+                    bestCell = cell
+                    if choices == 1 {
+                        break
+                    }
+                }
+            }
+            if empty == 0 {
+                recordSolution()
+                return
+            }
+
+            var values: [Int] = []
+            var bits = bestBits
+            let knownValue = knownFlat?[bestCell]
+            var deferred: Int?
+            while bits != 0 {
+                let value = bits.trailingZeroBitCount
+                bits &= bits - 1
+                if value == knownValue {
+                    deferred = value
+                } else {
+                    values.append(value)
+                }
+            }
+            if let deferred {
+                values.append(deferred)
+            }
+
+            for value in values {
+                let mark = undoStack.count
+                if place(value, at: bestCell) {
+                    explore()
+                }
+                undo(to: mark)
+                if count >= limit || reachedLimit {
                     return
                 }
             }
         }
 
-        mutating func nextChoice() -> Choice? {
-            var best: Choice?
-            for row in 0..<puzzle.size {
-                for column in 0..<puzzle.size where grid[row][column] == 0 {
-                    let cell = CellIndex(row: row, column: column)
-                    let values = candidates(row: row, column: column)
-                    if values.isEmpty {
-                        return Choice(cell: cell, values: [])
+        mutating func recordSolution() {
+            let rows = (0..<size).map { row in
+                Array(grid[(row * size)..<((row + 1) * size)])
+            }
+            if let knownFlat {
+                if grid == knownFlat {
+                    if count == 0 {
+                        count = 1
+                        if let knownRows {
+                            solutions = [knownRows]
+                        }
                     }
-                    if let current = best {
-                        if values.count < current.values.count {
-                            best = Choice(cell: cell, values: values)
+                    return
+                }
+                count = max(count, 1) + 1
+                if solutions.isEmpty, let knownRows {
+                    solutions.append(knownRows)
+                }
+                if solutions.count < limit {
+                    solutions.append(rows)
+                }
+                return
+            }
+            count += 1
+            if solutions.count < limit {
+                solutions.append(rows)
+            }
+        }
+
+        mutating func fillBits() -> Bool {
+            for cell in cellBits.indices {
+                cellBits[cell] = 0
+            }
+            for cage in cages {
+                let span = cage.cellCount
+                for comboIndex in 0..<cage.active {
+                    let combo = cage.order[comboIndex]
+                    let offset = combo * span
+                    var possible = true
+                    for local in 0..<span {
+                        let value = Int(cage.values[offset + local])
+                        let flat = cage.cells[local]
+                        if grid[flat] != 0 {
+                            if grid[flat] != value {
+                                possible = false
+                                break
+                            }
+                        } else {
+                            let bit = 1 << value
+                            if rowMask[cage.rows[local]] & bit != 0 || columnMask[cage.cols[local]] & bit != 0 {
+                                possible = false
+                                break
+                            }
+                        }
+                    }
+                    if !possible {
+                        continue
+                    }
+                    for local in 0..<span where grid[cage.cells[local]] == 0 {
+                        cellBits[cage.cells[local]] |= 1 << Int(cage.values[offset + local])
+                    }
+                }
+            }
+            for cell in grid.indices where grid[cell] == 0 && cellBits[cell] == 0 {
+                return false
+            }
+            return true
+        }
+
+        mutating func narrowRows() -> Bool {
+            for row in 0..<size {
+                if !narrow(row: row, column: nil) {
+                    return false
+                }
+            }
+            return true
+        }
+
+        mutating func narrowColumns() -> Bool {
+            for column in 0..<size {
+                if !narrow(row: nil, column: column) {
+                    return false
+                }
+            }
+            return true
+        }
+
+        /// A digit that fits only one empty cell in a row or column is placed in the domain.
+        mutating func narrow(row: Int?, column: Int?) -> Bool {
+            var owner = [Int](repeating: -1, count: size + 1)
+            var tally = [Int](repeating: 0, count: size + 1)
+            for offset in 0..<size {
+                let flat = row.map { $0 * size + offset } ?? offset * size + (column ?? 0)
+                guard grid[flat] == 0 else { continue }
+                var bits = cellBits[flat]
+                while bits != 0 {
+                    let value = bits.trailingZeroBitCount
+                    bits &= bits - 1
+                    tally[value] += 1
+                    owner[value] = flat
+                }
+            }
+            var forced = [Int](repeating: 0, count: size)
+            for value in 1...size where tally[value] == 1 {
+                let flat = owner[value]
+                let index = row == nil ? flat / size : flat % size
+                if forced[index] != 0 && forced[index] != value {
+                    return false
+                }
+                forced[index] = value
+            }
+            for offset in 0..<size {
+                let flat = row.map { $0 * size + offset } ?? offset * size + (column ?? 0)
+                guard grid[flat] == 0 else { continue }
+                if forced[offset] != 0 {
+                    cellBits[flat] = 1 << forced[offset]
+                }
+            }
+            for value in 1...size where tally[value] == 1 {
+                let bit = 1 << value
+                let keep = owner[value]
+                for offset in 0..<size {
+                    let flat = row.map { $0 * size + offset } ?? offset * size + (column ?? 0)
+                    if flat == keep || grid[flat] != 0 {
+                        continue
+                    }
+                    cellBits[flat] &= ~bit
+                    if cellBits[flat] == 0 {
+                        return false
+                    }
+                }
+            }
+            return true
+        }
+
+        mutating func place(_ value: Int, at cell: Int) -> Bool {
+            let bit = 1 << value
+            let row = cell / size
+            let column = cell % size
+            if grid[cell] != 0 || rowMask[row] & bit != 0 || columnMask[column] & bit != 0 {
+                return false
+            }
+            grid[cell] = value
+            rowMask[row] |= bit
+            columnMask[column] |= bit
+            let cageIndex = cageOf[cell]
+            let removed = filter(cageIndex: cageIndex)
+            undoStack.append(Step(cell: cell, cage: cageIndex, removed: removed))
+            return true
+        }
+
+        mutating func filter(cageIndex: Int) -> Int {
+            let span = cages[cageIndex].cellCount
+            var active = cages[cageIndex].active
+            var index = 0
+            var removed = 0
+            while index < active {
+                let combo = cages[cageIndex].order[index]
+                let offset = combo * span
+                var possible = true
+                for local in 0..<span {
+                    let value = Int(cages[cageIndex].values[offset + local])
+                    let flat = cages[cageIndex].cells[local]
+                    if grid[flat] != 0 {
+                        if grid[flat] != value {
+                            possible = false
+                            break
                         }
                     } else {
-                        best = Choice(cell: cell, values: values)
+                        let bit = 1 << value
+                        if rowMask[cages[cageIndex].rows[local]] & bit != 0
+                            || columnMask[cages[cageIndex].cols[local]] & bit != 0 {
+                            possible = false
+                            break
+                        }
                     }
                 }
+                if possible {
+                    index += 1
+                } else {
+                    active -= 1
+                    cages[cageIndex].order.swapAt(index, active)
+                    removed += 1
+                }
             }
-            return best
+            cages[cageIndex].active = active
+            return removed
         }
 
-        mutating func candidates(row: Int, column: Int) -> [Int] {
-            let cage = puzzle.cages[puzzle.cageIDs[row][column]]
-            var filled: [Int] = []
-            for cell in cage.cells where !(cell.row == row && cell.column == column) {
-                let value = grid[cell.row][cell.column]
-                if value != 0 {
-                    filled.append(value)
-                }
+        mutating func undo(to mark: Int) {
+            while undoStack.count > mark {
+                let step = undoStack.removeLast()
+                let row = step.cell / size
+                let column = step.cell % size
+                let value = grid[step.cell]
+                grid[step.cell] = 0
+                rowMask[row] &= ~(1 << value)
+                columnMask[column] &= ~(1 << value)
+                cages[step.cage].active += step.removed
             }
-            let emptyOthers = cage.cells.count - filled.count - 1
+        }
 
-            var allowed: [Int] = []
-            for value in 1...puzzle.size {
-                let bit = 1 << value
-                if rowMask[row] & bit != 0 || columnMask[column] & bit != 0 {
-                    continue
-                }
-                let fits = allows(
-                    value,
+        static func makeCages(puzzle: Puzzle, size: Int) -> [CageSlot] {
+            puzzle.cages.map { cage in
+                let cells = cage.cells.map { $0.row * size + $0.column }
+                let rows = cage.cells.map(\.row)
+                let cols = cage.cells.map(\.column)
+                let combos = combinations(
+                    rows: rows,
+                    cols: cols,
                     operation: cage.operation,
                     target: cage.target,
-                    filled: filled,
-                    emptyOthers: emptyOthers
+                    size: size
                 )
-                if fits {
-                    allowed.append(value)
+                var values: [UInt8] = []
+                values.reserveCapacity(combos.count * max(cells.count, 1))
+                for combo in combos {
+                    values.append(contentsOf: combo)
                 }
+                return CageSlot(
+                    cells: cells,
+                    rows: rows,
+                    cols: cols,
+                    cellCount: cells.count,
+                    values: values,
+                    order: Array(combos.indices),
+                    active: combos.count
+                )
             }
-            return allowed
         }
 
-        /// Loose bounds for unfinished cages, exact checks once a cage is full.
-        func allows(
-            _ value: Int,
+        static func combinations(
+            rows: [Int],
+            cols: [Int],
             operation: CageOperation?,
             target: Int,
-            filled: [Int],
-            emptyOthers: Int
-        ) -> Bool {
-            switch operation {
-            case nil:
-                return value == target
-            case .add:
-                let next = filled.reduce(0, +) + value
-                if emptyOthers == 0 { return next == target }
-                return next + emptyOthers <= target && next + emptyOthers * puzzle.size >= target
-            case .multiply:
-                let next = filled.reduce(1, *) * value
-                if next <= 0 || next > target || target % next != 0 { return false }
-                return emptyOthers > 0 || next == target
-            case .subtract:
-                guard let other = filled.first else { return true }
-                if filled.count > 1 { return false }
-                return value == other + target || value == other - target
-            case .divide:
-                guard let other = filled.first, target > 0 else { return filled.isEmpty }
-                if filled.count > 1 { return false }
-                let asLarger = other * target
-                let asSmaller = other % target == 0 ? other / target : nil
-                return value == asLarger || value == asSmaller
+            size: Int
+        ) -> [[UInt8]] {
+            let length = rows.count
+            if length == 0 {
+                return []
             }
-        }
+            var values = [UInt8](repeating: 0, count: length)
+            var rowUsed = [Int](repeating: 0, count: size)
+            var columnUsed = [Int](repeating: 0, count: size)
+            var found: [[UInt8]] = []
 
-        mutating func place(_ value: Int, at cell: CellIndex) {
-            grid[cell.row][cell.column] = value
-            rowMask[cell.row] |= 1 << value
-            columnMask[cell.column] |= 1 << value
-        }
+            func walk(_ index: Int, sum: Int, product: Int) {
+                if index == length {
+                    let digits = values.map { Int($0) }
+                    if KenDokuRules.isSatisfied(values: digits, operation: operation, target: target) {
+                        found.append(values)
+                    }
+                    return
+                }
+                let remain = length - index - 1
+                for value in 1...size {
+                    let bit = 1 << value
+                    if rowUsed[rows[index]] & bit != 0 || columnUsed[cols[index]] & bit != 0 {
+                        continue
+                    }
+                    if operation == .add {
+                        let next = sum + value
+                        if next > target || next + remain > target || next + remain * size < target {
+                            continue
+                        }
+                    } else if operation == .multiply {
+                        let next = product * value
+                        if next > target || target % next != 0 {
+                            continue
+                        }
+                    }
+                    values[index] = UInt8(value)
+                    rowUsed[rows[index]] |= bit
+                    columnUsed[cols[index]] |= bit
+                    walk(
+                        index + 1,
+                        sum: operation == .add ? sum + value : sum,
+                        product: operation == .multiply ? product * value : product
+                    )
+                    rowUsed[rows[index]] &= ~bit
+                    columnUsed[cols[index]] &= ~bit
+                }
+            }
 
-        mutating func remove(_ value: Int, at cell: CellIndex) {
-            grid[cell.row][cell.column] = 0
-            rowMask[cell.row] &= ~(1 << value)
-            columnMask[cell.column] &= ~(1 << value)
+            walk(0, sum: 0, product: 1)
+            return found
         }
     }
 }

@@ -1,6 +1,6 @@
 //
 //  GameExtrasView.swift
-//  KenKen
+//  KenDoku
 //
 //  Created by Logan Jasin on 11/7/26.
 //
@@ -13,8 +13,8 @@ struct StatisticsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                statRow("Solved", value: "\(stats.record.solved)")
-                statRow("Daily solved", value: "\(stats.record.dailySolved)")
+                statRow("Puzzles solved", value: "\(stats.record.solved)")
+                statRow("Daily puzzles solved", value: "\(stats.record.dailySolved)")
                 statRow("Current streak", value: "\(stats.record.currentStreak)")
                 statRow("Best streak", value: "\(stats.record.bestStreak)")
 
@@ -40,7 +40,7 @@ struct StatisticsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .glassEffect(.regular, in: .rect(cornerRadius: 20))
 
-                Text("The streak counts daily puzzles solved on consecutive days.")
+                Text("The streak is the number of daily puzzles solved consecutively.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -93,13 +93,18 @@ private struct BestTime: Identifiable {
 }
 
 struct SettingsView: View {
+    @Environment(\.appTheme) private var theme
     @AppStorage(GameSettings.size) private var size = 4
     @AppStorage(GameSettings.difficulty) private var difficultyRaw = Difficulty.medium.rawValue
-    @AppStorage(GameSettings.highlightMistakes) private var highlightMistakes = true
+    @AppStorage(GameSettings.mistakeHighlight) private var highlightRaw = ""
     @AppStorage(GameSettings.theme) private var themeRaw = AppTheme.kendoku.rawValue
 
     private var difficulty: Difficulty {
         Difficulty(rawValue: difficultyRaw) ?? .medium
+    }
+
+    private var mistakeHighlight: MistakeHighlight {
+        GameSettings.resolvedMistakeHighlight(stored: highlightRaw)
     }
 
     var body: some View {
@@ -124,7 +129,7 @@ struct SettingsView: View {
 
     private var gameplaySettings: some View {
         VStack(alignment: .leading, spacing: 22) {
-            sectionHeader("Gameplay", detail: "Start Game uses these choices.")
+            sectionHeader("Gameplay", detail: "New games will use these settings.")
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Size")
@@ -150,27 +155,60 @@ struct SettingsView: View {
 
             OperatorRulesEditor()
 
-            Toggle(isOn: $highlightMistakes) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Highlight mistakes")
-                    Text("Mark repeated numbers and finished cages that miss their target.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Highlight mistakes")
+                    .font(.headline)
+                VStack(spacing: 0) {
+                    ForEach(MistakeHighlight.allCases) { mode in
+                        if mode != MistakeHighlight.allCases.first {
+                            Divider()
+                        }
+                        highlightOption(mode)
+                    }
                 }
+                .padding(.horizontal, 16)
+                .glassEffect(.regular, in: .rect(cornerRadius: 20))
             }
-            .padding(16)
-            .glassEffect(.regular, in: .rect(cornerRadius: 20))
         }
     }
 
     private var appSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("App", detail: "Theme changes the app and its icon.")
+            sectionHeader("App", detail: "Theme changes the colors and icon.")
 
             ForEach(AppTheme.allCases) { theme in
                 themeButton(theme)
             }
         }
+    }
+
+    private func highlightOption(_ mode: MistakeHighlight) -> some View {
+        let isSelected = mistakeHighlight == mode
+        return Button {
+            highlightRaw = mode.rawValue
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(mode.title)
+                        .font(.body.weight(.semibold))
+                    Text(mode.detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? theme.accent : .secondary)
+            }
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(KenDokuHitButtonStyle())
+        .accessibilityLabel(mode.title)
+        .accessibilityValue(mode.detail)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func sectionHeader(_ title: String, detail: String) -> some View {

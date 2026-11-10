@@ -1,6 +1,6 @@
 //
-//  KenKenApp.swift
-//  KenKen
+//  KenDokuApp.swift
+//  KenDoku
 //
 //  Created by Logan Jasin on 9/1/26.
 //
@@ -12,16 +12,20 @@ import UIKit
 #endif
 
 @main
-struct KenKenApp: App {
+struct KenDokuApp: App {
     #if os(iOS)
-    @UIApplicationDelegateAdaptor(KenKenAppDelegate.self) private var appDelegate
+    @UIApplicationDelegateAdaptor(KenDokuAppDelegate.self) private var appDelegate
     #endif
     @State private var stats = PlayerStats()
+    @State private var activeGame = ActiveGame()
+    @State private var gameDeck = GameDeck()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(stats)
+                .environment(activeGame)
+                .environment(gameDeck)
                 #if os(iOS)
                 .background { ClosedDuoOrientationLock() }
                 #endif
@@ -57,7 +61,7 @@ enum ClosedDuoOrientation {
     }
 }
 
-final class KenKenAppDelegate: NSObject, UIApplicationDelegate {
+final class KenDokuAppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
         configurationForConnecting connectingSceneSession: UISceneSession,
@@ -65,7 +69,7 @@ final class KenKenAppDelegate: NSObject, UIApplicationDelegate {
     ) -> UISceneConfiguration {
         let configuration = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
         if connectingSceneSession.role == .windowApplication {
-            configuration.delegateClass = KenKenSceneDelegate.self
+            configuration.delegateClass = KenDokuSceneDelegate.self
         }
         return configuration
     }
@@ -79,7 +83,7 @@ final class KenKenAppDelegate: NSObject, UIApplicationDelegate {
     }
 }
 
-final class KenKenSceneDelegate: NSObject, UIWindowSceneDelegate {
+final class KenDokuSceneDelegate: NSObject, UIWindowSceneDelegate {
     func supportedInterfaceOrientations(for windowScene: UIWindowScene) -> UIInterfaceOrientationMask {
         ClosedDuoOrientation.mask(for: windowScene)
     }
