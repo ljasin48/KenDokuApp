@@ -28,6 +28,7 @@ enum GameSettings {
     static let allowMultiply = "mathdoku.allowMultiply"
     static let allowDivide = "mathdoku.allowDivide"
     static let hideOperators = "mathdoku.hideOperators"
+    static let leftHand = "mathdoku.leftHand"
     static let theme = "mathdoku.theme"
 }
 

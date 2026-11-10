@@ -22,6 +22,7 @@ struct GamePlayView: View {
     @AppStorage(GameSettings.allowMultiply) private var allowMultiply = true
     @AppStorage(GameSettings.allowDivide) private var allowDivide = true
     @AppStorage(GameSettings.hideOperators) private var hideOperators = false
+    @AppStorage(GameSettings.leftHand) private var leftHand = false
 
     @State private var loadID = 0
     @State private var installedID: Int?
@@ -197,11 +198,17 @@ struct GamePlayView: View {
             GeometryReader { proxy in
                 let side = max(0, min(proxy.size.width - column - 8, proxy.size.height))
                 HStack(alignment: .center, spacing: 0) {
+                    if leftHand {
+                        sideControls(size: puzzle.size, height: proxy.size.height)
+                            .frame(width: column, height: proxy.size.height)
+                    }
                     board(puzzle)
                         .frame(width: side, height: side)
                         .frame(maxWidth: .infinity)
-                    sideControls(size: puzzle.size, height: proxy.size.height)
-                        .frame(width: column, height: proxy.size.height)
+                    if !leftHand {
+                        sideControls(size: puzzle.size, height: proxy.size.height)
+                            .frame(width: column, height: proxy.size.height)
+                    }
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
             }
@@ -229,14 +236,20 @@ struct GamePlayView: View {
         let numberCount = CGFloat(max(size, 1))
         let numberHeight = max(0, (height - spacing * (numberCount - 1)) / numberCount)
         return HStack(alignment: .center, spacing: 8) {
+            if leftHand {
+                toolColumn(height: height)
+                    .frame(maxWidth: .infinity)
+            }
             VStack(spacing: spacing) {
                 ForEach(1...size, id: \.self) { number in
                     numberButton(number, height: numberHeight)
                 }
             }
             .frame(maxWidth: .infinity)
-            toolColumn(height: height)
-                .frame(maxWidth: .infinity)
+            if !leftHand {
+                toolColumn(height: height)
+                    .frame(maxWidth: .infinity)
+            }
         }
         .frame(maxHeight: .infinity, alignment: .center)
     }

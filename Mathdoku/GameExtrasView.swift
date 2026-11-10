@@ -98,6 +98,7 @@ struct SettingsView: View {
     @AppStorage(GameSettings.difficulty) private var difficultyRaw = Difficulty.medium.rawValue
     @AppStorage(GameSettings.mistakeHighlight) private var highlightRaw = ""
     @AppStorage(GameSettings.theme) private var themeRaw = AppTheme.mathdoku.rawValue
+    @AppStorage(GameSettings.leftHand) private var leftHand = false
 
     private var difficulty: Difficulty {
         Difficulty(rawValue: difficultyRaw) ?? .medium
@@ -129,7 +130,7 @@ struct SettingsView: View {
 
     private var gameplaySettings: some View {
         VStack(alignment: .leading, spacing: 22) {
-            sectionHeader("Gameplay", detail: "Settings for new games.")
+            sectionHeader("Gameplay", detail: "Gameplay settings.")
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Size")
@@ -172,8 +173,22 @@ struct SettingsView: View {
 
     private var appSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("App", detail: "Theme changes the colors and icon.")
+            sectionHeader("App", detail: "Application settings.")
 
+            Toggle(isOn: $leftHand) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Left-hand mode")
+                    Text("Moves the buttons to the left in landscape.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(16)
+            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            
+            Text("Theme")
+                .font(.headline)
             ForEach(AppTheme.allCases) { theme in
                 themeButton(theme)
             }
