@@ -1,6 +1,6 @@
-# KenDoku
+# Mathdoku
 
-KenDoku is a [KenKen](https://en.wikipedia.org/wiki/KenKen)-style number puzzle. Puzzles are generated on the device. Progress and statistics stay on the device.
+Mathdoku is an arithmetic Sudoku in the [KenKen](https://en.wikipedia.org/wiki/KenKen) style. Puzzles are generated on the device. Progress and statistics stay on the device.
 
 ## How to play
 
@@ -18,26 +18,31 @@ KenDoku is a [KenKen](https://en.wikipedia.org/wiki/KenKen)-style number puzzle.
 - Enter numbers, make notes, undo, erase, and take a hint. A hint keeps the solve from counting as a best time.
 - Choose which operations appear in new games. Division cannot be the only operation. The daily puzzle uses the standard set.
 - Highlight mistakes for a finished cell group that misses its target, or for any cell that does not match the solution.
-- Switch themes: KenDoku, Space, Daylight, and Grove. A theme changes the colors and the app icon.
+- Switch themes: Mathdoku, Space, Daylight, and Grove. A theme changes the colors and the app icon.
 - Statistics track puzzles solved, the daily streak, and best times for each size and difficulty.
 
 ## Requirements
 
 - Xcode 27 or later
 - Deployment target 26.5 on every platform
+- iPhone, iPad, Mac, Apple TV, and visionOS
 
-Open `KenDoku.xcodeproj` and run the **KenDoku** scheme. The bundle identifier is `com.loganjasin.KenDoku`.
+Open `Mathdoku.xcodeproj` and run the **Mathdoku** scheme. The bundle identifier is `com.loganjasin.Mathdoku`.
 
 ## Project layout
 
 | Path | What it does |
 | --- | --- |
-| `KenDoku/KenDokuApp.swift` | App entry and scene setup |
-| `KenDoku/LandingView.swift` | Home screen, new game, resume, and daily puzzle |
-| `KenDoku/GamePlayView.swift` | Board, entry, notes, and the solved state |
-| `KenDoku/GameExtrasView.swift` | Statistics and settings |
-| `KenDoku/Puzzle.swift` | Puzzle model, rules, and board checking |
-| `KenDoku/KenKenGenerator.swift` | On-device puzzle generation |
-| `KenDoku/ActiveGame.swift` | Saved game |
-| `KenDoku/PlayerStats.swift` | Solved counts, streaks, and best times |
-| `KenDoku/AppTheme.swift` | Theme colors and icons |
+| `Mathdoku/MathdokuApp.swift` | App entry and scene setup |
+| `Mathdoku/ContentView.swift` | Navigation, theme, and the next board |
+| `Mathdoku/LandingView.swift` | Home screen, new game, resume, and daily puzzle |
+| `Mathdoku/HomeDestinationView.swift` | Game, statistics, settings, and how to play |
+| `Mathdoku/GamePlayView.swift` | Board, entry, notes, and the solved state |
+| `Mathdoku/GameSetupView.swift` | Saved settings, a game launch, and the operations editor |
+| `Mathdoku/GameExtrasView.swift` | Statistics and settings |
+| `Mathdoku/Puzzle.swift` | Puzzle model, rules, and board checking |
+| `Mathdoku/MathdokuGenerator.swift` | On-device puzzle generation |
+| `Mathdoku/GameDeck.swift` | One prepared puzzle for the next new game |
+| `Mathdoku/ActiveGame.swift` | Saved game |
+| `Mathdoku/PlayerStats.swift` | Solved counts, streaks, and best times |
+| `Mathdoku/AppTheme.swift` | Theme colors and icons |
