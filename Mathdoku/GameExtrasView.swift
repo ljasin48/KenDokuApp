@@ -92,20 +92,121 @@ private struct BestTime: Identifiable {
     var title: String { "\(size)\u{00D7}\(size) \(difficulty.title)" }
 }
 
+struct MistakeHighlightPicker: View {
+    @Environment(\.appTheme) private var theme
+    @AppStorage(GameSettings.mistakeHighlight) private var highlightRaw = ""
+
+    private var mistakeHighlight: MistakeHighlight {
+        GameSettings.resolvedMistakeHighlight(stored: highlightRaw)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Highlight mistakes")
+                .font(.headline)
+            VStack(spacing: 0) {
+                ForEach(MistakeHighlight.allCases) { mode in
+                    if mode != MistakeHighlight.allCases.first {
+                        Divider()
+                    }
+                    option(mode)
+                }
+            }
+            .padding(.horizontal, 16)
+            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        }
+    }
+
+    private func option(_ mode: MistakeHighlight) -> some View {
+        let isSelected = mistakeHighlight == mode
+        return Button {
+            highlightRaw = mode.rawValue
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(mode.title)
+                        .font(.body.weight(.semibold))
+                    Text(mode.detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? theme.accent : .secondary)
+            }
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(MathdokuHitButtonStyle())
+        .accessibilityLabel(mode.title)
+        .accessibilityValue(mode.detail)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+struct LeftHandModeToggle: View {
+    @AppStorage(GameSettings.leftHand) private var leftHand = false
+
+    var body: some View {
+        Toggle(isOn: $leftHand) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Left-hand mode")
+                Text("Moves the buttons to the left in landscape.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+    }
+}
+
+/// Settings that can change during a puzzle without replacing the board.
+struct PlaySettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    MistakeHighlightPicker()
+                    LeftHandModeToggle()
+                }
+                .padding(24)
+                .frame(maxWidth: 560, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .background { MathdokuBackground() }
+            .navigationTitle("Settings")
+            #if os(iOS) || os(visionOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .mathdokuScreen()
+        #if os(iOS)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        #endif
+    }
+}
+
 struct SettingsView: View {
     @Environment(\.appTheme) private var theme
     @AppStorage(GameSettings.size) private var size = 4
     @AppStorage(GameSettings.difficulty) private var difficultyRaw = Difficulty.medium.rawValue
-    @AppStorage(GameSettings.mistakeHighlight) private var highlightRaw = ""
     @AppStorage(GameSettings.theme) private var themeRaw = AppTheme.mathdoku.rawValue
-    @AppStorage(GameSettings.leftHand) private var leftHand = false
 
     private var difficulty: Difficulty {
         Difficulty(rawValue: difficultyRaw) ?? .medium
-    }
-
-    private var mistakeHighlight: MistakeHighlight {
-        GameSettings.resolvedMistakeHighlight(stored: highlightRaw)
     }
 
     var body: some View {
@@ -154,20 +255,7 @@ struct SettingsView: View {
 
             OperatorRulesEditor()
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Highlight mistakes")
-                    .font(.headline)
-                VStack(spacing: 0) {
-                    ForEach(MistakeHighlight.allCases) { mode in
-                        if mode != MistakeHighlight.allCases.first {
-                            Divider()
-                        }
-                        highlightOption(mode)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .glassEffect(.regular, in: .rect(cornerRadius: 20))
-            }
+            MistakeHighlightPicker()
         }
     }
 
@@ -175,18 +263,8 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("App", detail: "Application settings.")
 
-            Toggle(isOn: $leftHand) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Left-hand mode")
-                    Text("Moves the buttons to the left in landscape.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(16)
-            .glassEffect(.regular, in: .rect(cornerRadius: 20))
-            
+            LeftHandModeToggle()
+
             Text("Theme")
                 .font(.headline)
             ForEach(AppTheme.allCases) { theme in
@@ -211,35 +289,6 @@ struct SettingsView: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func highlightOption(_ mode: MistakeHighlight) -> some View {
-        let isSelected = mistakeHighlight == mode
-        return Button {
-            highlightRaw = mode.rawValue
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(mode.title)
-                        .font(.body.weight(.semibold))
-                    Text(mode.detail)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? theme.accent : .secondary)
-            }
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(MathdokuHitButtonStyle())
-        .accessibilityLabel(mode.title)
-        .accessibilityValue(mode.detail)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func sectionHeader(_ title: String, detail: String) -> some View {

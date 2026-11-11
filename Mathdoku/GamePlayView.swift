@@ -41,6 +41,7 @@ struct GamePlayView: View {
     @State private var frozenSeconds = 0
     @State private var confirmClear = false
     @State private var confirmNew = false
+    @State private var showPlaySettings = false
 
     var body: some View {
         playScreen
@@ -115,6 +116,9 @@ struct GamePlayView: View {
             } message: {
                 Text("This board will be replaced.")
             }
+            .sheet(isPresented: $showPlaySettings) {
+                PlaySettingsSheet()
+            }
     }
 
     private func resumeClockIfNeeded() {
@@ -143,6 +147,9 @@ struct GamePlayView: View {
             if !launch.isDaily {
                 Button("New Puzzle", systemImage: "plus", action: requestNewPuzzle)
                     .disabled(isLoading)
+            }
+            Button("Settings", systemImage: "gearshape") {
+                showPlaySettings = true
             }
         }
     }
