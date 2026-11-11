@@ -8,11 +8,55 @@
 import Foundation
 import Observation
 
+struct SavedNoteChange: Codable, Equatable {
+    var row: Int
+    var column: Int
+    var notes: Set<Int>
+}
+
 struct SavedMove: Codable, Equatable {
     var row: Int
     var column: Int
     var value: Int?
     var notes: Set<Int>
+    /// Notes removed from other cells in the row and column when this digit was placed.
+    var clearedNotes: [SavedNoteChange]
+
+    init(
+        row: Int,
+        column: Int,
+        value: Int?,
+        notes: Set<Int>,
+        clearedNotes: [SavedNoteChange] = []
+    ) {
+        self.row = row
+        self.column = column
+        self.value = value
+        self.notes = notes
+        self.clearedNotes = clearedNotes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        row = try container.decode(Int.self, forKey: .row)
+        column = try container.decode(Int.self, forKey: .column)
+        value = try container.decodeIfPresent(Int.self, forKey: .value)
+        notes = try container.decode(Set<Int>.self, forKey: .notes)
+        clearedNotes = try container.decodeIfPresent([SavedNoteChange].self, forKey: .clearedNotes) ?? []
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(row, forKey: .row)
+        try container.encode(column, forKey: .column)
+        try container.encodeIfPresent(value, forKey: .value)
+        try container.encode(notes, forKey: .notes)
+        try container.encode(clearedNotes, forKey: .clearedNotes)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case row, column, value, notes, clearedNotes
+    }
 }
 
 struct SavedGame: Codable {

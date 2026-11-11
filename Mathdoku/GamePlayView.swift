@@ -182,8 +182,8 @@ struct GamePlayView: View {
             statusBar
             board(puzzle)
                 .frame(maxWidth: 640)
-            numberPad(size: puzzle.size)
             toolRow
+            numberPad(size: puzzle.size)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
@@ -236,7 +236,7 @@ struct GamePlayView: View {
         let numberCount = CGFloat(max(size, 1))
         let numberHeight = max(0, (height - spacing * (numberCount - 1)) / numberCount)
         return HStack(alignment: .center, spacing: 8) {
-            if leftHand {
+            if !leftHand {
                 toolColumn(height: height)
                     .frame(maxWidth: .infinity)
             }
@@ -246,7 +246,7 @@ struct GamePlayView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            if !leftHand {
+            if leftHand {
                 toolColumn(height: height)
                     .frame(maxWidth: .infinity)
             }
@@ -510,7 +510,16 @@ struct GamePlayView: View {
         undoStack = saved.undo.compactMap { move in
             guard move.row >= 0, move.column >= 0,
                   move.row < restored.size, move.column < restored.size else { return nil }
-            return Move(row: move.row, column: move.column, value: move.value, notes: move.notes)
+            return Move(
+                row: move.row,
+                column: move.column,
+                value: move.value,
+                notes: move.notes,
+                clearedNotes: move.clearedNotes.filter { change in
+                    change.row >= 0 && change.column >= 0
+                        && change.row < restored.size && change.column < restored.size
+                }
+            )
         }
         notesMode = saved.notesMode
         didFinish = false
@@ -587,7 +596,15 @@ struct GamePlayView: View {
             entries: entries,
             notes: notes,
             selection: selection,
-            undo: undoStack.map { SavedMove(row: $0.row, column: $0.column, value: $0.value, notes: $0.notes) },
+            undo: undoStack.map {
+                SavedMove(
+                    row: $0.row,
+                    column: $0.column,
+                    value: $0.value,
+                    notes: $0.notes,
+                    clearedNotes: $0.clearedNotes
+                )
+            },
             notesMode: notesMode,
             usedHint: usedHint,
             elapsedSeconds: elapsedSeconds()
@@ -612,10 +629,45 @@ struct GamePlayView: View {
         let previousValue = entries[cell.row][cell.column]
         let previousNotes = notes[cell.row][cell.column]
         guard previousValue != value else { return }
-        undoStack.append(Move(row: cell.row, column: cell.column, value: previousValue, notes: previousNotes))
+        let clearedNotes = matchingNotes(of: value, around: cell)
+        undoStack.append(
+            Move(
+                row: cell.row,
+                column: cell.column,
+                value: previousValue,
+                notes: previousNotes,
+                clearedNotes: clearedNotes
+            )
+        )
         entries[cell.row][cell.column] = value
         notes[cell.row][cell.column] = []
+        for change in clearedNotes {
+            var cellNotes = notes[change.row][change.column]
+            cellNotes.remove(value)
+            notes[change.row][change.column] = cellNotes
+        }
         finishIfNeeded()
+    }
+
+    /// Notes in this row and column that still contain `value`. The placed cell is excluded.
+    /// A wrong digit clears them too. Cages are left alone, since a digit may repeat there.
+    private func matchingNotes(of value: Int, around cell: CellIndex) -> [SavedNoteChange] {
+        guard let puzzle else { return [] }
+        var changes: [SavedNoteChange] = []
+        func capture(row: Int, column: Int) {
+            guard row != cell.row || column != cell.column else { return }
+            guard notes.indices.contains(row), notes[row].indices.contains(column) else { return }
+            let cellNotes = notes[row][column]
+            guard cellNotes.contains(value) else { return }
+            changes.append(SavedNoteChange(row: row, column: column, notes: cellNotes))
+        }
+        for column in 0..<puzzle.size {
+            capture(row: cell.row, column: column)
+        }
+        for row in 0..<puzzle.size {
+            capture(row: row, column: cell.column)
+        }
+        return changes
     }
 
     private func toggleNote(_ number: Int, at cell: CellIndex) {
@@ -645,6 +697,10 @@ struct GamePlayView: View {
         guard !didFinish, let move = undoStack.popLast() else { return }
         entries[move.row][move.column] = move.value
         notes[move.row][move.column] = move.notes
+        for change in move.clearedNotes {
+            guard notes.indices.contains(change.row), notes[change.row].indices.contains(change.column) else { continue }
+            notes[change.row][change.column] = change.notes
+        }
         selection = CellIndex(row: move.row, column: move.column)
     }
 
@@ -753,6 +809,7 @@ private struct Move {
     var column: Int
     var value: Int?
     var notes: Set<Int>
+    var clearedNotes: [SavedNoteChange] = []
 }
 
 private struct MathdokuBoard: View {
