@@ -30,6 +30,7 @@ enum GameSettings {
     static let hideOperators = "mathdoku.hideOperators"
     static let leftHand = "mathdoku.leftHand"
     static let theme = "mathdoku.theme"
+    static let tutorialPromptSeen = "mathdoku.tutorialPromptSeen"
 }
 
 enum DailySettings {

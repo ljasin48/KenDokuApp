@@ -13,6 +13,7 @@ enum HomeRoute: Hashable {
     case dailyPuzzle
     case statistics
     case settings
+    case tutorial
 
     var title: String {
         switch self {
@@ -21,6 +22,7 @@ enum HomeRoute: Hashable {
         case .dailyPuzzle: "Daily Puzzle"
         case .statistics: "Statistics"
         case .settings: "Settings"
+        case .tutorial: "Tutorial"
         }
     }
 }
@@ -90,10 +92,13 @@ private struct MenuOption: Identifiable {
 
 struct LandingView: View {
     let startGame: (GameLaunch) -> Void
+    let startTutorial: () -> Void
 
     @Environment(\.appTheme) private var theme
     @Environment(ActiveGame.self) private var activeGame
     @Environment(PlayerStats.self) private var stats
+    @AppStorage(GameSettings.tutorialPromptSeen) private var tutorialPromptSeen = false
+    @State private var showTutorialPrompt = false
     @State private var confirmReplace = false
     @State private var pendingLaunch: GameLaunch?
     @AppStorage(GameSettings.size) private var size = 6
@@ -128,6 +133,64 @@ struct LandingView: View {
         } message: {
             Text("The puzzle you were playing will be discarded.")
         }
+        .overlay {
+            if showTutorialPrompt {
+                tutorialPrompt
+            }
+        }
+        .onAppear {
+            if !tutorialPromptSeen {
+                showTutorialPrompt = true
+            }
+        }
+        .onChange(of: showTutorialPrompt) {
+            if !showTutorialPrompt {
+                tutorialPromptSeen = true
+            }
+        }
+    }
+
+    private var tutorialPrompt: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 16) {
+                Text("New to Mathdoku?")
+                    .font(.title3.weight(.semibold))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                HStack(spacing: 12) {
+                    Button {
+                        showTutorialPrompt = false
+                    } label: {
+                        Text("Skip")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonSizing(.flexible)
+                    .keyboardShortcut(.cancelAction)
+                    Button {
+                        showTutorialPrompt = false
+                        startTutorial()
+                    } label: {
+                        Text("Play tutorial")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonSizing(.flexible)
+                    .keyboardShortcut(.defaultAction)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: 360)
+            .glassEffect(.regular, in: .rect(cornerRadius: 24))
+            .padding(.horizontal, 24)
+        }
+        .accessibilityAddTraits(.isModal)
     }
 
     private func page(compact: Bool) -> some View {
@@ -375,7 +438,7 @@ struct LandingView: View {
 
 #Preview {
     NavigationStack {
-        LandingView { _ in }
+        LandingView(startGame: { _ in }, startTutorial: {})
             .mathdokuScreen()
     }
     .mathdokuScreen()

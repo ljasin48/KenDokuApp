@@ -1140,7 +1140,7 @@ private struct CellGroupSheet: View {
     }
 }
 
-private struct MathdokuBoard: View {
+struct MathdokuBoard: View {
     let puzzle: Puzzle
     let entries: [[Int?]]
     let notes: [[Set<Int>]]

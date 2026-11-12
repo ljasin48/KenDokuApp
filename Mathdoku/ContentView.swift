@@ -38,9 +38,14 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            LandingView { launch in
-                path.append(HomeRoute.newGame(launch))
-            }
+            LandingView(
+                startGame: { launch in
+                    path.append(HomeRoute.newGame(launch))
+                },
+                startTutorial: {
+                    path.append(HomeRoute.tutorial)
+                }
+            )
             .mathdokuScreen()
             .navigationDestination(for: HomeRoute.self) { route in
                 HomeDestinationView(route: route)

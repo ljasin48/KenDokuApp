@@ -43,7 +43,7 @@ enum AppTheme: String, CaseIterable, Identifiable, Sendable {
         case .mathdoku:
             Color(red: 0.93, green: 0.45, blue: 0.27)
         case .space:
-            Color(red: 0.45, green: 0.86, blue: 0.98)
+            Color(red: 0.18, green: 0.48, blue: 0.78)
         case .daylight:
             Color(red: 0.76, green: 0.34, blue: 0.22)
         case .grove:

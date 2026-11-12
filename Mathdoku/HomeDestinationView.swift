@@ -23,6 +23,8 @@ struct HomeDestinationView: View {
                 SettingsView()
             case .howToPlay:
                 howToPlay
+            case .tutorial:
+                TutorialView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -56,6 +58,13 @@ struct HomeDestinationView: View {
                     title: "No-op mode",
                     text: "Settings can hide the operation symbol. The puzzle is the same; only the symbol is missing."
                 )
+                NavigationLink(value: HomeRoute.tutorial) {
+                    Text("Play tutorial")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(MathdokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 20))
             }
             .padding(24)
             .frame(maxWidth: 560, alignment: .leading)
