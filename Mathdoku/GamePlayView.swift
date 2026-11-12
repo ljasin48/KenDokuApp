@@ -35,6 +35,7 @@ struct GamePlayView: View {
     @State private var notesMode = false
     @State private var didFinish = false
     @State private var usedHint = false
+    @State private var madeError = false
     @State private var hideWinCard = false
     @State private var startedAt: Date?
     @State private var bankedSeconds = 0
@@ -551,6 +552,7 @@ struct GamePlayView: View {
         dismissedCombos = validDismissedCombos(saved.dismissedCombos, puzzle: restored)
         didFinish = false
         usedHint = saved.usedHint
+        madeError = saved.madeError
         hideWinCard = false
         bankedSeconds = max(0, saved.elapsedSeconds)
         startedAt = .now
@@ -571,12 +573,14 @@ struct GamePlayView: View {
         showCombinations = false
         didFinish = false
         usedHint = false
+        madeError = false
         hideWinCard = false
         bankedSeconds = 0
         startedAt = .now
         frozenSeconds = 0
         installedID = token
         isLoading = false
+        stats.recordStart(size: generated.size)
         finishIfNeeded()
         persistProgress()
     }
@@ -638,6 +642,7 @@ struct GamePlayView: View {
             },
             notesMode: notesMode,
             usedHint: usedHint,
+            madeError: madeError,
             elapsedSeconds: elapsedSeconds(),
             dismissedCombos: dismissedCombos
         )
@@ -671,6 +676,9 @@ struct GamePlayView: View {
                 clearedNotes: clearedNotes
             )
         )
+        if let puzzle, puzzle.solution[cell.row][cell.column] != value {
+            madeError = true
+        }
         entries[cell.row][cell.column] = value
         notes[cell.row][cell.column] = []
         for change in clearedNotes {
@@ -767,7 +775,12 @@ struct GamePlayView: View {
         hideWinCard = false
         frozenSeconds = elapsedSeconds()
         startedAt = nil
-        stats.recordWin(seconds: frozenSeconds, launch: launch, countsForBestTime: !usedHint)
+        stats.recordWin(
+            seconds: frozenSeconds,
+            launch: launch,
+            countsForBestTime: !usedHint,
+            perfect: !usedHint && !madeError
+        )
         activeGame.clear()
     }
 
@@ -827,6 +840,7 @@ struct GamePlayView: View {
         dismissedCombos = [:]
         didFinish = false
         usedHint = false
+        madeError = false
         hideWinCard = false
         bankedSeconds = 0
         startedAt = .now

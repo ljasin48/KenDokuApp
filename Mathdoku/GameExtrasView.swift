@@ -9,87 +9,137 @@ import SwiftUI
 
 struct StatisticsView: View {
     @Environment(PlayerStats.self) private var stats
+    @State private var selectedSize = 4
+    @State private var confirmReset = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                statRow("Puzzles solved", value: "\(stats.record.solved)")
-                statRow("Daily puzzles solved", value: "\(stats.record.dailySolved)")
-                statRow("Current streak", value: "\(stats.record.currentStreak)")
-                statRow("Best streak", value: "\(stats.record.bestStreak)")
+                statGroup(
+                    "Overall",
+                    rows: [
+                        ("Played", "\(stats.record.played)"),
+                        ("Solved", countPercent(stats.record.completed, of: stats.record.played)),
+                        ("Perfected", countPercent(stats.record.perfect, of: stats.record.played))
+                    ]
+                )
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Best times")
+                statGroup(
+                    "Daily",
+                    rows: [
+                        ("Solved", "\(stats.record.dailySolved)"),
+                        ("Current streak", "\(stats.record.currentStreak)"),
+                        ("Best streak", "\(stats.record.bestStreak)"),
+                        ("Best time", clock(stats.record.bestDailySeconds ?? 0))
+                    ]
+                )
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Size")
                         .font(.headline)
-                    if bestTimes.isEmpty {
-                        Text("Finish a puzzle without hints to record a time.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(bestTimes) { entry in
-                            HStack {
-                                Text(entry.title)
-                                Spacer()
-                                Text(clock(entry.seconds))
-                                    .monospacedDigit()
-                            }
-                            .font(.body)
+                    Picker(selection: $selectedSize) {
+                        ForEach(GameLaunch.sizes, id: \.self) { value in
+                            Text("\(value)\u{00D7}\(value)").tag(value)
                         }
+                    } label: {
+                        Text("Size")
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .glassEffect(.regular, in: .rect(cornerRadius: 20))
 
-                Text("The streak is the number of daily puzzles solved consecutively.")
+                sizeGroup(selectedSize)
+
+                Text("A perfect game is solved with no hints or wrong numbers. The streak counts daily puzzles solved on consecutive days. Best times only count if no hints are used.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                Button(role: .destructive) {
+                    confirmReset = true
+                } label: {
+                    Text("Reset Statistics")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(MathdokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 20))
             }
             .padding(24)
             .frame(maxWidth: 560, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .center)
         }
+        .onAppear {
+            if !GameLaunch.sizes.contains(selectedSize) {
+                selectedSize = 4
+            }
+        }
+        .confirmationDialog("Reset all statistics?", isPresented: $confirmReset, titleVisibility: .visible) {
+            Button("Reset Statistics", role: .destructive) {
+                stats.reset()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("All statistics will be reset. This cannot be undone. Today's daily puzzle can be played again.")
+        }
     }
 
-    private func statRow(_ title: String, value: String) -> some View {
+    private func sizeGroup(_ size: Int) -> some View {
+        let totals = stats.record.bySize[size] ?? SizeStats()
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("\(size)\u{00D7}\(size)")
+                .font(.headline)
+            statLine("Played", "\(totals.played)")
+            statLine("Solved", countPercent(totals.completed, of: totals.played))
+            statLine("Perfected", countPercent(totals.perfect, of: totals.played))
+            Text("Best times")
+                .font(.headline)
+                .padding(.top, 6)
+            ForEach(Difficulty.allCases) { difficulty in
+                statLine(difficulty.title, clock(bestSeconds(size: size, difficulty: difficulty)))
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+    }
+
+    private func statGroup(_ title: String, rows: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                statLine(row.0, row.1)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+    }
+
+    private func statLine(_ title: String, _ value: String) -> some View {
         HStack {
             Text(title)
             Spacer()
             Text(value)
-                .font(.title3.weight(.semibold).monospacedDigit())
+                .font(.body.weight(.semibold).monospacedDigit())
         }
-        .padding(16)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
     }
 
-    private var bestTimes: [BestTime] {
-        stats.record.bestSeconds.compactMap { key, seconds in
-            let parts = key.split(separator: "-")
-            guard parts.count == 2,
-                  let size = Int(parts[0]),
-                  let difficulty = Difficulty(rawValue: String(parts[1]))
-            else { return nil }
-            return BestTime(id: key, size: size, difficulty: difficulty, seconds: seconds)
-        }
-        .sorted { lhs, rhs in
-            if lhs.size != rhs.size { return lhs.size < rhs.size }
-            let order = Difficulty.allCases
-            return (order.firstIndex(of: lhs.difficulty) ?? 0) < (order.firstIndex(of: rhs.difficulty) ?? 0)
-        }
+    private func countPercent(_ count: Int, of total: Int) -> String {
+        guard total > 0 else { return "\(count) (0%)" }
+        let percent = Int((Double(count) / Double(total) * 100).rounded())
+        return "\(count) (\(percent)%)"
+    }
+
+    private func bestSeconds(size: Int, difficulty: Difficulty) -> Int {
+        stats.record.bestSeconds["\(size)-\(difficulty.rawValue)"] ?? 0
     }
 
     private func clock(_ seconds: Int) -> String {
         let clamped = max(0, seconds)
         return String(format: "%d:%02d", clamped / 60, clamped % 60)
     }
-}
-
-private struct BestTime: Identifiable {
-    let id: String
-    let size: Int
-    let difficulty: Difficulty
-    let seconds: Int
-
-    var title: String { "\(size)\u{00D7}\(size) \(difficulty.title)" }
 }
 
 struct MistakeHighlightPicker: View {
@@ -231,7 +281,7 @@ struct SettingsView: View {
 
     private var gameplaySettings: some View {
         VStack(alignment: .leading, spacing: 22) {
-            sectionHeader("Gameplay", detail: "Gameplay settings.")
+            sectionHeader("Gameplay Settings", detail: "")
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Size")
@@ -261,7 +311,7 @@ struct SettingsView: View {
 
     private var appSettings: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("App", detail: "Application settings.")
+            sectionHeader("Application Settings", detail: "")
 
             LeftHandModeToggle()
 

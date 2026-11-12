@@ -94,6 +94,7 @@ struct SavedGame: Codable {
     var undo: [SavedMove]
     var notesMode: Bool
     var usedHint: Bool
+    var madeError: Bool
     var elapsedSeconds: Int
     /// Combinations the player removed, keyed by cage id.
     var dismissedCombos: [Int: [CageCombo]]
@@ -111,6 +112,7 @@ struct SavedGame: Codable {
         undo: [SavedMove],
         notesMode: Bool,
         usedHint: Bool,
+        madeError: Bool = false,
         elapsedSeconds: Int,
         dismissedCombos: [Int: [CageCombo]] = [:]
     ) {
@@ -126,6 +128,7 @@ struct SavedGame: Codable {
         self.undo = undo
         self.notesMode = notesMode
         self.usedHint = usedHint
+        self.madeError = madeError
         self.elapsedSeconds = elapsedSeconds
         self.dismissedCombos = dismissedCombos
     }
@@ -144,6 +147,7 @@ struct SavedGame: Codable {
         undo = try container.decode([SavedMove].self, forKey: .undo)
         notesMode = try container.decode(Bool.self, forKey: .notesMode)
         usedHint = try container.decode(Bool.self, forKey: .usedHint)
+        madeError = try container.decodeIfPresent(Bool.self, forKey: .madeError) ?? false
         elapsedSeconds = try container.decode(Int.self, forKey: .elapsedSeconds)
         dismissedCombos = try container.decodeIfPresent([Int: [CageCombo]].self, forKey: .dismissedCombos) ?? [:]
     }
@@ -162,13 +166,14 @@ struct SavedGame: Codable {
         try container.encode(undo, forKey: .undo)
         try container.encode(notesMode, forKey: .notesMode)
         try container.encode(usedHint, forKey: .usedHint)
+        try container.encode(madeError, forKey: .madeError)
         try container.encode(elapsedSeconds, forKey: .elapsedSeconds)
         try container.encode(dismissedCombos, forKey: .dismissedCombos)
     }
 
     private enum CodingKeys: String, CodingKey {
         case size, difficulty, seed, isDaily, id, puzzle, entries, notes, selection, undo
-        case notesMode, usedHint, elapsedSeconds, dismissedCombos
+        case notesMode, usedHint, madeError, elapsedSeconds, dismissedCombos
     }
 
     var launch: GameLaunch {

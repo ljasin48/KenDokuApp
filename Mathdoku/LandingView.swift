@@ -70,19 +70,19 @@ private struct MenuOption: Identifiable {
         MenuOption(
             route: .howToPlay,
             title: "How to Play",
-            detail: "Cell groups, operations, and the grid rule",
+            detail: "Cell groups, operations, and rules",
             symbol: "questionmark.circle"
         ),
         MenuOption(
             route: .dailyPuzzle,
             title: "Daily Puzzle",
-            detail: "One shared board each day",
+            detail: "A daily 6x6 medium puzzle",
             symbol: "calendar"
         ),
         MenuOption(
             route: .statistics,
             title: "Statistics",
-            detail: "Times, streaks, and solved grids",
+            detail: "Gameplay statistics",
             symbol: "chart.bar"
         )
     ]
@@ -96,7 +96,7 @@ struct LandingView: View {
     @Environment(PlayerStats.self) private var stats
     @State private var confirmReplace = false
     @State private var pendingLaunch: GameLaunch?
-    @AppStorage(GameSettings.size) private var size = 4
+    @AppStorage(GameSettings.size) private var size = 6
     @AppStorage(GameSettings.difficulty) private var difficultyRaw = Difficulty.medium.rawValue
     @AppStorage(GameSettings.allowAdd) private var allowAdd = true
     @AppStorage(GameSettings.allowSubtract) private var allowSubtract = true
@@ -294,7 +294,7 @@ struct LandingView: View {
     }
 
     private var resolvedSize: Int {
-        GameLaunch.sizes.contains(size) ? size : 4
+        GameLaunch.sizes.contains(size) ? size : 6
     }
 
     private func menu(spacing: CGFloat, rowPadding: CGFloat) -> some View {
@@ -316,7 +316,7 @@ struct LandingView: View {
                         .disabled(stats.completedDailyToday)
                         .accessibilityHint(
                             stats.completedDailyToday
-                                ? "Today's puzzle is already completed"
+                                ? "Today's puzzle has already been solved"
                                 : "Opens today's puzzle"
                         )
                     } else {
@@ -364,12 +364,12 @@ struct LandingView: View {
 
     private var dailyDetail: String {
         if stats.completedDailyToday {
-            return "Completed today"
+            return "Already solved today"
         }
         if activeGame.game?.isTodayDaily == true {
             return "Continue today's board"
         }
-        return "One shared board each day"
+        return "A daily 6x6 medium puzzle"
     }
 }
 

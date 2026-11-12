@@ -32,6 +32,11 @@ enum GameSettings {
     static let theme = "mathdoku.theme"
 }
 
+enum DailySettings {
+    static let size: Int = 6
+    static let difficulty: Difficulty = .medium
+}
+
 struct GameLaunch: Hashable {
     var size: Int
     var difficulty: Difficulty
@@ -43,7 +48,7 @@ struct GameLaunch: Hashable {
 
     static func daily(on date: Date = .now) -> GameLaunch {
         let seed = DayStamp.seed(from: date)
-        return GameLaunch(size: 6, difficulty: .medium, seed: seed, isDaily: true, id: seed)
+        return GameLaunch(size: DailySettings.size, difficulty: DailySettings.difficulty, seed: seed, isDaily: true, id: seed)
     }
 
     static func random(size: Int, difficulty: Difficulty) -> GameLaunch {
