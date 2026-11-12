@@ -276,13 +276,6 @@ struct GamePlayView: View {
         }()
         return VStack(spacing: spacing) {
             toolButton(
-                notesMode ? "Notes On" : "Notes",
-                systemImage: notesMode ? "pencil.circle.fill" : "pencil",
-                height: toolHeight
-            ) {
-                notesMode.toggle()
-            }
-            toolButton(
                 "Undo",
                 systemImage: "arrow.uturn.backward",
                 height: toolHeight,
@@ -294,6 +287,10 @@ struct GamePlayView: View {
                 erase()
             }
             .disabled(didFinish)
+            toolButton("Hint", systemImage: "lightbulb", height: toolHeight) {
+                useHint()
+            }
+            .disabled(didFinish)
             toolButton(
                 "Combos",
                 systemImage: "list.number",
@@ -302,10 +299,13 @@ struct GamePlayView: View {
             ) {
                 showCombinations = true
             }
-            toolButton("Hint", systemImage: "lightbulb", height: toolHeight) {
-                useHint()
+            toolButton(
+                notesMode ? "Notes On" : "Notes",
+                systemImage: notesMode ? "pencil.circle.fill" : "pencil",
+                height: toolHeight
+            ) {
+                notesMode.toggle()
             }
-            .disabled(didFinish)
         }
     }
 
@@ -357,9 +357,6 @@ struct GamePlayView: View {
 
     private var toolRow: some View {
         HStack(spacing: 8) {
-            toolButton(notesMode ? "Notes On" : "Notes", systemImage: notesMode ? "pencil.circle.fill" : "pencil") {
-                notesMode.toggle()
-            }
             toolButton("Undo", systemImage: "arrow.uturn.backward", isEnabled: canUndo) {
                 undo()
             }
@@ -367,13 +364,16 @@ struct GamePlayView: View {
                 erase()
             }
             .disabled(didFinish)
-            toolButton("Combos", systemImage: "list.number", isEnabled: canShowCombinations) {
-                showCombinations = true
-            }
             toolButton("Hint", systemImage: "lightbulb") {
                 useHint()
             }
             .disabled(didFinish)
+            toolButton("Combos", systemImage: "list.number", isEnabled: canShowCombinations) {
+                showCombinations = true
+            }
+            toolButton(notesMode ? "Notes On" : "Notes", systemImage: notesMode ? "pencil.circle.fill" : "pencil") {
+                notesMode.toggle()
+            }
         }
     }
 
