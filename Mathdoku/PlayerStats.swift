@@ -26,6 +26,12 @@ struct PlayerRecord: Codable, Equatable {
     var completed = 0
     var perfect = 0
     var bySize: [Int: SizeStats] = [:]
+    /// Fastest finish for each board size, in seconds, including finishes that used a hint.
+    var fastestFinish: [Int: Int] = [:]
+    /// Perfect finishes keyed by "\(size)-\(difficulty.rawValue)".
+    var perfectByKey: [String: Int] = [:]
+    /// Finishes keyed by "\(size)-\(difficulty.rawValue)", including imperfect ones.
+    var completedByKey: [String: Int] = [:]
 
     init() {}
 
@@ -42,6 +48,27 @@ struct PlayerRecord: Codable, Equatable {
         completed = try container.decodeIfPresent(Int.self, forKey: .completed) ?? 0
         perfect = try container.decodeIfPresent(Int.self, forKey: .perfect) ?? 0
         bySize = try container.decodeIfPresent([Int: SizeStats].self, forKey: .bySize) ?? [:]
+        if container.contains(.fastestFinish) {
+            fastestFinish = try container.decodeIfPresent([Int: Int].self, forKey: .fastestFinish) ?? [:]
+        } else {
+            fastestFinish = Self.derivedFastestFinish(from: bestSeconds)
+        }
+        perfectByKey = try container.decodeIfPresent([String: Int].self, forKey: .perfectByKey) ?? [:]
+        completedByKey = try container.decodeIfPresent([String: Int].self, forKey: .completedByKey) ?? [:]
+    }
+
+    /// Older stats files stored hint-free best times only. Use the fastest of those per size until a new finish is recorded.
+    private static func derivedFastestFinish(from bestSeconds: [String: Int]) -> [Int: Int] {
+        var fastest: [Int: Int] = [:]
+        for (key, seconds) in bestSeconds {
+            guard let size = Int(key.split(separator: "-").first ?? "") else { continue }
+            if let existing = fastest[size] {
+                fastest[size] = min(existing, seconds)
+            } else {
+                fastest[size] = seconds
+            }
+        }
+        return fastest
     }
 
     func encode(to encoder: Encoder) throws {
@@ -57,11 +84,14 @@ struct PlayerRecord: Codable, Equatable {
         try container.encode(completed, forKey: .completed)
         try container.encode(perfect, forKey: .perfect)
         try container.encode(bySize, forKey: .bySize)
+        try container.encode(fastestFinish, forKey: .fastestFinish)
+        try container.encode(perfectByKey, forKey: .perfectByKey)
+        try container.encode(completedByKey, forKey: .completedByKey)
     }
 
     private enum CodingKeys: String, CodingKey {
         case solved, dailySolved, currentStreak, bestStreak, lastDailyDay, bestDailySeconds, bestSeconds
-        case played, completed, perfect, bySize
+        case played, completed, perfect, bySize, fastestFinish, perfectByKey, completedByKey
     }
 }
 
@@ -98,9 +128,18 @@ final class PlayerStats {
         next.solved += 1
         next.completed += 1
         next.bySize[launch.size, default: SizeStats()].completed += 1
+        let launchKey = "\(launch.size)-\(launch.difficulty.rawValue)"
+        next.completedByKey[launchKey, default: 0] += 1
         if perfect {
             next.perfect += 1
             next.bySize[launch.size, default: SizeStats()].perfect += 1
+            next.perfectByKey[launchKey, default: 0] += 1
+        }
+
+        if let fastest = next.fastestFinish[launch.size] {
+            next.fastestFinish[launch.size] = min(fastest, seconds)
+        } else {
+            next.fastestFinish[launch.size] = seconds
         }
 
         if countsForBestTime {

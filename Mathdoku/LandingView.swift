@@ -12,6 +12,7 @@ enum HomeRoute: Hashable {
     case howToPlay
     case dailyPuzzle
     case statistics
+    case challenges
     case settings
     case tutorial
 
@@ -21,6 +22,7 @@ enum HomeRoute: Hashable {
         case .howToPlay: "How to Play"
         case .dailyPuzzle: "Daily Puzzle"
         case .statistics: "Statistics"
+        case .challenges: "Challenges"
         case .settings: "Settings"
         case .tutorial: "Tutorial"
         }
@@ -72,13 +74,13 @@ private struct MenuOption: Identifiable {
         MenuOption(
             route: .howToPlay,
             title: "How to Play",
-            detail: "Cell groups, operations, and rules",
+            detail: "Rules and tutorial",
             symbol: "questionmark.circle"
         ),
         MenuOption(
             route: .dailyPuzzle,
             title: "Daily Puzzle",
-            detail: "A daily 6x6 medium puzzle",
+            detail: "Daily 6x6 medium puzzle",
             symbol: "calendar"
         ),
         MenuOption(
@@ -86,6 +88,12 @@ private struct MenuOption: Identifiable {
             title: "Statistics",
             detail: "Gameplay statistics",
             symbol: "chart.bar"
+        ),
+        MenuOption(
+            route: .challenges,
+            title: "Challenges",
+            detail: "Goals and progress",
+            symbol: "trophy"
         )
     ]
 }
@@ -112,11 +120,21 @@ struct LandingView: View {
     private let rowSpacing: CGFloat = 12
 
     var body: some View {
-        ViewThatFits(in: .vertical) {
-            page(compact: false)
-            page(compact: true)
+        GeometryReader { proxy in
+            Group {
+                if proxy.size.width > proxy.size.height {
+                    widePage
+                } else {
+                    ViewThatFits(in: .vertical) {
+                        page(compact: false)
+                        page(compact: true)
+                    }
+                    .frame(maxWidth: 480)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .frame(maxWidth: 480)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { MathdokuBackground() }
         .navigationTitle("Mathdoku")
@@ -193,6 +211,29 @@ struct LandingView: View {
         .accessibilityAddTraits(.isModal)
     }
 
+    private var widePage: some View {
+        HStack(alignment: .center, spacing: 28) {
+            VStack(spacing: 20) {
+                header(compact: true)
+                gameActions(rowPadding: 10)
+            }
+            .frame(maxWidth: .infinity)
+
+            GeometryReader { column in
+                ScrollView {
+                    menu(spacing: 8, rowPadding: 10)
+                        .frame(maxWidth: .infinity, minHeight: column.size.height)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 12)
+        .frame(maxWidth: 900)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func page(compact: Bool) -> some View {
         let spacing: CGFloat = compact ? 8 : rowSpacing
         let gap: CGFloat = compact ? 8 : 16
@@ -213,11 +254,16 @@ struct LandingView: View {
         VStack(spacing: compact ? 2 : 6) {
             Text("Mathdoku")
                 .font(.system(size: compact ? 34 : 48, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
             Text("Arithmetic Sudoku")
                 .font(.title3)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
         }
+        .frame(maxWidth: .infinity)
     }
 
     private func settingsCard(rowPadding: CGFloat) -> some View {
@@ -411,7 +457,9 @@ struct LandingView: View {
                 Text(detail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 8)

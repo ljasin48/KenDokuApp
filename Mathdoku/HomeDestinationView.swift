@@ -19,6 +19,8 @@ struct HomeDestinationView: View {
                 GamePlayView(launch: .daily())
             case .statistics:
                 StatisticsView()
+            case .challenges:
+                ChallengesView()
             case .settings:
                 SettingsView()
             case .howToPlay:

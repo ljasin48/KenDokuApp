@@ -74,13 +74,13 @@ struct StatisticsView: View {
                 selectedSize = 4
             }
         }
-        .confirmationDialog("Reset all statistics?", isPresented: $confirmReset, titleVisibility: .visible) {
-            Button("Reset Statistics", role: .destructive) {
+        .confirmationDialog("Reset all statistics and challenges?", isPresented: $confirmReset, titleVisibility: .visible) {
+            Button("Reset Statistics and Challenges", role: .destructive) {
                 stats.reset()
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("All statistics will be reset. This cannot be undone. Today's daily puzzle can be played again.")
+            Text("All statistics and challenges will be reset. This cannot be undone. Today's daily puzzle can be played again.")
         }
     }
 
