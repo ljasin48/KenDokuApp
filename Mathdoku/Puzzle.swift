@@ -320,6 +320,16 @@ nonisolated enum MistakeHighlight: String, CaseIterable, Identifiable, Sendable 
     }
 }
 
+/// One way to fill a cell group. `digits` on a stored dismissal are sorted ascending.
+nonisolated struct CageCombo: Hashable, Codable, Sendable {
+    var digits: [Int]
+
+    /// Same numbers, smallest first. Placements that differ only by cell order match.
+    var canonical: CageCombo {
+        CageCombo(digits: digits.sorted())
+    }
+}
+
 nonisolated enum MathdokuRules {
     static func isSatisfied(values: [Int], operation: CageOperation?, target: Int) -> Bool {
         guard !values.isEmpty else { return false }
@@ -340,6 +350,90 @@ nonisolated enum MathdokuRules {
             let low = min(values[0], values[1])
             return low > 0 && high % low == 0 && high / low == target
         }
+    }
+
+    static func orderedCells(_ cells: [CellIndex]) -> [CellIndex] {
+        cells.sorted { lhs, rhs in
+            if lhs.row != rhs.row { return lhs.row < rhs.row }
+            return lhs.column < rhs.column
+        }
+    }
+
+    /// Combinations that fit this group and the numbers already entered, including a wrong digit.
+    /// The solution is not consulted.
+    static func combinations(cage: Cage, entries: [[Int?]], size: Int) -> [CageCombo] {
+        let cells = orderedCells(cage.cells)
+        let length = cells.count
+        guard length > 0, entries.count == size, entries.allSatisfy({ $0.count == size }) else { return [] }
+        guard cells.allSatisfy({ $0.row >= 0 && $0.column >= 0 && $0.row < size && $0.column < size }) else {
+            return []
+        }
+
+        var pins = [Int?](repeating: nil, count: length)
+        for (index, cell) in cells.enumerated() {
+            guard let value = entries[cell.row][cell.column] else { continue }
+            guard (1...size).contains(value) else { return [] }
+            pins[index] = value
+        }
+
+        let cageCells = Set(cells)
+        var rowUsed = [Int](repeating: 0, count: size)
+        var columnUsed = [Int](repeating: 0, count: size)
+        for row in 0..<size {
+            for column in 0..<size {
+                let cell = CellIndex(row: row, column: column)
+                guard !cageCells.contains(cell), let value = entries[row][column], (1...size).contains(value) else {
+                    continue
+                }
+                rowUsed[row] |= 1 << value
+                columnUsed[column] |= 1 << value
+            }
+        }
+
+        var values = [Int](repeating: 0, count: length)
+        var found: [CageCombo] = []
+
+        func walk(_ index: Int, sum: Int, product: Int) {
+            if index == length {
+                if isSatisfied(values: values, operation: cage.operation, target: cage.target) {
+                    found.append(CageCombo(digits: values))
+                }
+                return
+            }
+            let cell = cells[index]
+            let remain = length - index - 1
+            let choices = pins[index].map { [$0] } ?? Array(1...size)
+            for value in choices {
+                let bit = 1 << value
+                if rowUsed[cell.row] & bit != 0 || columnUsed[cell.column] & bit != 0 {
+                    continue
+                }
+                if cage.operation == .add {
+                    let next = sum + value
+                    if next > cage.target || next + remain > cage.target || next + remain * size < cage.target {
+                        continue
+                    }
+                } else if cage.operation == .multiply {
+                    let next = product * value
+                    if next > cage.target || (cage.target % next) != 0 {
+                        continue
+                    }
+                }
+                values[index] = value
+                rowUsed[cell.row] |= bit
+                columnUsed[cell.column] |= bit
+                walk(
+                    index + 1,
+                    sum: cage.operation == .add ? sum + value : sum,
+                    product: cage.operation == .multiply ? product * value : product
+                )
+                rowUsed[cell.row] &= ~bit
+                columnUsed[cell.column] &= ~bit
+            }
+        }
+
+        walk(0, sum: 0, product: 1)
+        return found
     }
 
     static func analyze(entries: [[Int?]], puzzle: Puzzle) -> BoardAnalysis {

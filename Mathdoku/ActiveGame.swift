@@ -14,6 +14,16 @@ struct SavedNoteChange: Codable, Equatable {
     var notes: Set<Int>
 }
 
+struct SavedComboDismissal: Codable, Equatable {
+    var cageID: Int
+    var digits: [Int]
+}
+
+struct SavedComboReset: Codable, Equatable {
+    var cageID: Int
+    var combos: [CageCombo]
+}
+
 struct SavedMove: Codable, Equatable {
     var row: Int
     var column: Int
@@ -21,19 +31,27 @@ struct SavedMove: Codable, Equatable {
     var notes: Set<Int>
     /// Notes removed from other cells in the row and column when this digit was placed.
     var clearedNotes: [SavedNoteChange]
+    /// A cell-group combination removed from the possibility list, restored by undo.
+    var comboDismissal: SavedComboDismissal?
+    /// Combinations put back by Reset, so undo can remove them again.
+    var comboReset: SavedComboReset?
 
     init(
         row: Int,
         column: Int,
         value: Int?,
         notes: Set<Int>,
-        clearedNotes: [SavedNoteChange] = []
+        clearedNotes: [SavedNoteChange] = [],
+        comboDismissal: SavedComboDismissal? = nil,
+        comboReset: SavedComboReset? = nil
     ) {
         self.row = row
         self.column = column
         self.value = value
         self.notes = notes
         self.clearedNotes = clearedNotes
+        self.comboDismissal = comboDismissal
+        self.comboReset = comboReset
     }
 
     init(from decoder: Decoder) throws {
@@ -43,6 +61,8 @@ struct SavedMove: Codable, Equatable {
         value = try container.decodeIfPresent(Int.self, forKey: .value)
         notes = try container.decode(Set<Int>.self, forKey: .notes)
         clearedNotes = try container.decodeIfPresent([SavedNoteChange].self, forKey: .clearedNotes) ?? []
+        comboDismissal = try container.decodeIfPresent(SavedComboDismissal.self, forKey: .comboDismissal)
+        comboReset = try container.decodeIfPresent(SavedComboReset.self, forKey: .comboReset)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -52,10 +72,12 @@ struct SavedMove: Codable, Equatable {
         try container.encodeIfPresent(value, forKey: .value)
         try container.encode(notes, forKey: .notes)
         try container.encode(clearedNotes, forKey: .clearedNotes)
+        try container.encodeIfPresent(comboDismissal, forKey: .comboDismissal)
+        try container.encodeIfPresent(comboReset, forKey: .comboReset)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case row, column, value, notes, clearedNotes
+        case row, column, value, notes, clearedNotes, comboDismissal, comboReset
     }
 }
 
@@ -73,6 +95,81 @@ struct SavedGame: Codable {
     var notesMode: Bool
     var usedHint: Bool
     var elapsedSeconds: Int
+    /// Combinations the player removed, keyed by cage id.
+    var dismissedCombos: [Int: [CageCombo]]
+
+    init(
+        size: Int,
+        difficulty: Difficulty,
+        seed: UInt64?,
+        isDaily: Bool,
+        id: UInt64,
+        puzzle: Puzzle,
+        entries: [[Int?]],
+        notes: [[Set<Int>]],
+        selection: CellIndex?,
+        undo: [SavedMove],
+        notesMode: Bool,
+        usedHint: Bool,
+        elapsedSeconds: Int,
+        dismissedCombos: [Int: [CageCombo]] = [:]
+    ) {
+        self.size = size
+        self.difficulty = difficulty
+        self.seed = seed
+        self.isDaily = isDaily
+        self.id = id
+        self.puzzle = puzzle
+        self.entries = entries
+        self.notes = notes
+        self.selection = selection
+        self.undo = undo
+        self.notesMode = notesMode
+        self.usedHint = usedHint
+        self.elapsedSeconds = elapsedSeconds
+        self.dismissedCombos = dismissedCombos
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        size = try container.decode(Int.self, forKey: .size)
+        difficulty = try container.decode(Difficulty.self, forKey: .difficulty)
+        seed = try container.decodeIfPresent(UInt64.self, forKey: .seed)
+        isDaily = try container.decode(Bool.self, forKey: .isDaily)
+        id = try container.decode(UInt64.self, forKey: .id)
+        puzzle = try container.decode(Puzzle.self, forKey: .puzzle)
+        entries = try container.decode([[Int?]].self, forKey: .entries)
+        notes = try container.decode([[Set<Int>]].self, forKey: .notes)
+        selection = try container.decodeIfPresent(CellIndex.self, forKey: .selection)
+        undo = try container.decode([SavedMove].self, forKey: .undo)
+        notesMode = try container.decode(Bool.self, forKey: .notesMode)
+        usedHint = try container.decode(Bool.self, forKey: .usedHint)
+        elapsedSeconds = try container.decode(Int.self, forKey: .elapsedSeconds)
+        dismissedCombos = try container.decodeIfPresent([Int: [CageCombo]].self, forKey: .dismissedCombos) ?? [:]
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(size, forKey: .size)
+        try container.encode(difficulty, forKey: .difficulty)
+        try container.encodeIfPresent(seed, forKey: .seed)
+        try container.encode(isDaily, forKey: .isDaily)
+        try container.encode(id, forKey: .id)
+        try container.encode(puzzle, forKey: .puzzle)
+        try container.encode(entries, forKey: .entries)
+        try container.encode(notes, forKey: .notes)
+        try container.encodeIfPresent(selection, forKey: .selection)
+        try container.encode(undo, forKey: .undo)
+        try container.encode(notesMode, forKey: .notesMode)
+        try container.encode(usedHint, forKey: .usedHint)
+        try container.encode(elapsedSeconds, forKey: .elapsedSeconds)
+        try container.encode(dismissedCombos, forKey: .dismissedCombos)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case size, difficulty, seed, isDaily, id, puzzle, entries, notes, selection, undo
+        case notesMode, usedHint, elapsedSeconds, dismissedCombos
+    }
 
     var launch: GameLaunch {
         GameLaunch(size: size, difficulty: difficulty, seed: seed, isDaily: isDaily, id: id)

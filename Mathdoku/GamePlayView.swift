@@ -42,6 +42,8 @@ struct GamePlayView: View {
     @State private var confirmClear = false
     @State private var confirmNew = false
     @State private var showPlaySettings = false
+    @State private var showCombinations = false
+    @State private var dismissedCombos: [Int: [CageCombo]] = [:]
 
     var body: some View {
         playScreen
@@ -81,6 +83,7 @@ struct GamePlayView: View {
             .onChange(of: notes) { persistProgress() }
             .onChange(of: selection) { persistProgress() }
             .onChange(of: notesMode) { persistProgress() }
+            .onChange(of: dismissedCombos) { persistProgress() }
     }
 
     private func presence<V: View>(_ view: V) -> some View {
@@ -108,7 +111,7 @@ struct GamePlayView: View {
                 Button("Clear Board", role: .destructive, action: clearBoard)
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Numbers and notes on this puzzle will be erased.")
+                Text("Numbers, notes, and removed combinations on this puzzle will be erased.")
             }
             .confirmationDialog("Start a new puzzle?", isPresented: $confirmNew, titleVisibility: .visible) {
                 Button("New Puzzle", role: .destructive) { loadID += 1 }
@@ -118,6 +121,9 @@ struct GamePlayView: View {
             }
             .sheet(isPresented: $showPlaySettings) {
                 PlaySettingsSheet()
+            }
+            .sheet(isPresented: $showCombinations) {
+                combinationSheet
             }
     }
 
@@ -265,7 +271,7 @@ struct GamePlayView: View {
         let spacing: CGFloat = 6
         let toolHeight: CGFloat = {
             guard let height else { return 48 }
-            return max(0, (height - spacing * 3) / 4)
+            return max(0, (height - spacing * 4) / 5)
         }()
         return VStack(spacing: spacing) {
             toolButton(
@@ -287,6 +293,14 @@ struct GamePlayView: View {
                 erase()
             }
             .disabled(didFinish)
+            toolButton(
+                "Combos",
+                systemImage: "list.number",
+                height: toolHeight,
+                isEnabled: canShowCombinations
+            ) {
+                showCombinations = true
+            }
             toolButton("Hint", systemImage: "lightbulb", height: toolHeight) {
                 useHint()
             }
@@ -352,6 +366,9 @@ struct GamePlayView: View {
                 erase()
             }
             .disabled(didFinish)
+            toolButton("Combos", systemImage: "list.number", isEnabled: canShowCombinations) {
+                showCombinations = true
+            }
             toolButton("Hint", systemImage: "lightbulb") {
                 useHint()
             }
@@ -525,10 +542,13 @@ struct GamePlayView: View {
                 clearedNotes: move.clearedNotes.filter { change in
                     change.row >= 0 && change.column >= 0
                         && change.row < restored.size && change.column < restored.size
-                }
+                },
+                comboDismissal: validDismissal(move.comboDismissal, puzzle: restored),
+                comboReset: validComboReset(move.comboReset, puzzle: restored)
             )
         }
         notesMode = saved.notesMode
+        dismissedCombos = validDismissedCombos(saved.dismissedCombos, puzzle: restored)
         didFinish = false
         usedHint = saved.usedHint
         hideWinCard = false
@@ -547,6 +567,8 @@ struct GamePlayView: View {
         selection = firstEmpty(in: generated) ?? CellIndex(row: 0, column: 0)
         undoStack = []
         notesMode = false
+        dismissedCombos = [:]
+        showCombinations = false
         didFinish = false
         usedHint = false
         hideWinCard = false
@@ -609,12 +631,15 @@ struct GamePlayView: View {
                     column: $0.column,
                     value: $0.value,
                     notes: $0.notes,
-                    clearedNotes: $0.clearedNotes
+                    clearedNotes: $0.clearedNotes,
+                    comboDismissal: $0.comboDismissal,
+                    comboReset: $0.comboReset
                 )
             },
             notesMode: notesMode,
             usedHint: usedHint,
-            elapsedSeconds: elapsedSeconds()
+            elapsedSeconds: elapsedSeconds(),
+            dismissedCombos: dismissedCombos
         )
         activeGame.save(saved)
     }
@@ -708,6 +733,15 @@ struct GamePlayView: View {
             guard notes.indices.contains(change.row), notes[change.row].indices.contains(change.column) else { continue }
             notes[change.row][change.column] = change.notes
         }
+        if let dismissal = move.comboDismissal {
+            dismissedCombos[dismissal.cageID]?.removeAll { $0.canonical == CageCombo(digits: dismissal.digits).canonical }
+            if dismissedCombos[dismissal.cageID]?.isEmpty == true {
+                dismissedCombos[dismissal.cageID] = nil
+            }
+        }
+        if let reset = move.comboReset {
+            dismissedCombos[reset.cageID] = reset.combos
+        }
         selection = CellIndex(row: move.row, column: move.column)
     }
 
@@ -729,6 +763,7 @@ struct GamePlayView: View {
         guard let puzzle, !didFinish else { return }
         guard analysis(for: puzzle).isSolved else { return }
         didFinish = true
+        showCombinations = false
         hideWinCard = false
         frozenSeconds = elapsedSeconds()
         startedAt = nil
@@ -775,6 +810,7 @@ struct GamePlayView: View {
     private var hasProgress: Bool {
         guard let puzzle else { return false }
         if entries != puzzle.startingEntries() { return true }
+        if !dismissedCombos.isEmpty { return true }
         return notes.contains { row in row.contains { !$0.isEmpty } }
     }
 
@@ -788,6 +824,7 @@ struct GamePlayView: View {
         notes = Self.blankNotes(size: puzzle.size)
         undoStack = []
         notesMode = false
+        dismissedCombos = [:]
         didFinish = false
         usedHint = false
         hideWinCard = false
@@ -795,6 +832,135 @@ struct GamePlayView: View {
         startedAt = .now
         frozenSeconds = 0
         selection = firstEmpty(in: puzzle) ?? CellIndex(row: 0, column: 0)
+    }
+
+    private var canShowCombinations: Bool {
+        guard !didFinish, let cage = selectedCage else { return false }
+        return cage.cells.count > 1
+    }
+
+    private var selectedCage: Cage? {
+        guard let puzzle, let selection,
+              selection.row >= 0, selection.column >= 0,
+              selection.row < puzzle.size, selection.column < puzzle.size
+        else { return nil }
+        let cageID = puzzle.cageIDs[selection.row][selection.column]
+        guard puzzle.cages.indices.contains(cageID) else { return nil }
+        return puzzle.cages[cageID]
+    }
+
+    @ViewBuilder
+    private var combinationSheet: some View {
+        if let cage = selectedCage {
+            CellGroupSheet(
+                cage: cage,
+                entries: entries,
+                size: cage.cells.isEmpty ? 0 : (puzzle?.size ?? 0),
+                hidesOperators: puzzle?.rules.hidesOperators ?? false,
+                dismissed: dismissedCombos[cage.id] ?? [],
+                onRemove: { combo in dismissCombo(combo, cageID: cage.id) },
+                onReset: { resetCombos(cageID: cage.id) },
+                onSetNotes: { combos in applyGroupNotes(combos, cage: cage) }
+            )
+        }
+    }
+
+    private func dismissCombo(_ combo: CageCombo, cageID: Int) {
+        guard !didFinish, let selection else { return }
+        let canonical = combo.canonical
+        var list = dismissedCombos[cageID] ?? []
+        guard !list.contains(where: { $0.canonical == canonical }) else { return }
+        undoStack.append(
+            Move(
+                row: selection.row,
+                column: selection.column,
+                value: entries[selection.row][selection.column],
+                notes: notes[selection.row][selection.column],
+                comboDismissal: SavedComboDismissal(cageID: cageID, digits: canonical.digits)
+            )
+        )
+        list.append(canonical)
+        dismissedCombos[cageID] = list
+    }
+
+    private func resetCombos(cageID: Int) {
+        guard !didFinish, let selection, let list = dismissedCombos[cageID], !list.isEmpty else { return }
+        undoStack.append(
+            Move(
+                row: selection.row,
+                column: selection.column,
+                value: entries[selection.row][selection.column],
+                notes: notes[selection.row][selection.column],
+                comboReset: SavedComboReset(cageID: cageID, combos: list)
+            )
+        )
+        dismissedCombos[cageID] = nil
+    }
+
+    private func applyGroupNotes(_ combos: [CageCombo], cage: Cage) {
+        guard !didFinish, !combos.isEmpty else { return }
+        let cells = MathdokuRules.orderedCells(cage.cells)
+        var planned: [(CellIndex, Set<Int>)] = []
+        for (index, cell) in cells.enumerated() {
+            guard notes.indices.contains(cell.row), notes[cell.row].indices.contains(cell.column) else { continue }
+            let digits: Set<Int>
+            if entries[cell.row][cell.column] == nil {
+                digits = Set(combos.compactMap { combo in
+                    combo.digits.indices.contains(index) ? combo.digits[index] : nil
+                })
+            } else {
+                digits = []
+            }
+            guard notes[cell.row][cell.column] != digits else { continue }
+            planned.append((cell, digits))
+        }
+        guard let first = planned.first else { return }
+        let rest = planned.dropFirst().map { item in
+            SavedNoteChange(row: item.0.row, column: item.0.column, notes: notes[item.0.row][item.0.column])
+        }
+        undoStack.append(
+            Move(
+                row: first.0.row,
+                column: first.0.column,
+                value: nil,
+                notes: notes[first.0.row][first.0.column],
+                clearedNotes: rest
+            )
+        )
+        for (cell, digits) in planned {
+            notes[cell.row][cell.column] = digits
+        }
+    }
+
+    private func validDismissal(_ dismissal: SavedComboDismissal?, puzzle: Puzzle) -> SavedComboDismissal? {
+        guard let dismissal, puzzle.cages.indices.contains(dismissal.cageID) else { return nil }
+        let count = puzzle.cages[dismissal.cageID].cells.count
+        guard dismissal.digits.count == count,
+              dismissal.digits.allSatisfy({ (1...puzzle.size).contains($0) })
+        else { return nil }
+        return dismissal
+    }
+
+    private func validComboReset(_ reset: SavedComboReset?, puzzle: Puzzle) -> SavedComboReset? {
+        guard let reset else { return nil }
+        let combos = validDismissedCombos([reset.cageID: reset.combos], puzzle: puzzle)[reset.cageID] ?? []
+        guard !combos.isEmpty else { return nil }
+        return SavedComboReset(cageID: reset.cageID, combos: combos)
+    }
+
+    private func validDismissedCombos(_ saved: [Int: [CageCombo]], puzzle: Puzzle) -> [Int: [CageCombo]] {
+        var kept: [Int: [CageCombo]] = [:]
+        for (cageID, combos) in saved {
+            guard puzzle.cages.indices.contains(cageID) else { continue }
+            let count = puzzle.cages[cageID].cells.count
+            let valid = combos.filter { combo in
+                combo.digits.count == count && combo.digits.allSatisfy { (1...puzzle.size).contains($0) }
+            }
+            if !valid.isEmpty {
+                kept[cageID] = valid
+            }
+        }
+        return kept
     }
 
     private static func blankEntries(size: Int) -> [[Int?]] {
@@ -817,6 +983,147 @@ private struct Move {
     var value: Int?
     var notes: Set<Int>
     var clearedNotes: [SavedNoteChange] = []
+    var comboDismissal: SavedComboDismissal? = nil
+    var comboReset: SavedComboReset? = nil
+}
+
+private struct CellGroupSheet: View {
+    let cage: Cage
+    let entries: [[Int?]]
+    let size: Int
+    let hidesOperators: Bool
+    let dismissed: [CageCombo]
+    let onRemove: (CageCombo) -> Void
+    let onReset: () -> Void
+    let onSetNotes: ([CageCombo]) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private var positional: [CageCombo] {
+        MathdokuRules.combinations(cage: cage, entries: entries, size: size)
+    }
+
+    private var possible: [CageCombo] {
+        Self.uniqueSorted(positional)
+    }
+
+    private var visiblePositional: [CageCombo] {
+        let hidden = Set(dismissed.map(\.canonical))
+        return positional.filter { !hidden.contains($0.canonical) }
+    }
+
+    private var visible: [CageCombo] {
+        Self.uniqueSorted(visiblePositional)
+    }
+
+    private static func uniqueSorted(_ combos: [CageCombo]) -> [CageCombo] {
+        var seen = Set<CageCombo>()
+        var unique: [CageCombo] = []
+        for combo in combos {
+            let canonical = combo.canonical
+            if seen.insert(canonical).inserted {
+                unique.append(canonical)
+            }
+        }
+        return unique.sorted { $0.digits.lexicographicallyPrecedes($1.digits) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(cage.clue(hidingOperation: hidesOperators))
+                        .font(.title2.weight(.semibold))
+                    Text("All possible combinations that satisfy the arithmetic. Tap a row to set those numbers as notes. Notes already in this group are removed.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    VStack(spacing: 0) {
+                        if visible.isEmpty {
+                            Text(possible.isEmpty
+                                 ? "No combinations fit the numbers on the board."
+                                 : "You removed every combination that still fits.")
+                                .font(.body)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 12)
+                        } else {
+                            ForEach(Array(visible.enumerated()), id: \.offset) { index, combo in
+                                if index > 0 {
+                                    Divider()
+                                }
+                                combinationRow(combo)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 20))
+
+                    if !dismissed.isEmpty {
+                        Button(action: onReset) {
+                            Text("Reset combinations")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 52)
+                        }
+                        .buttonStyle(MathdokuGlassButtonStyle(glass: .regular.interactive(), cornerRadius: 16))
+                        .accessibilityHint("Puts removed combinations back.")
+                    }
+                }
+                .padding(24)
+                .frame(maxWidth: 560, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .background { MathdokuBackground() }
+            .navigationTitle("Cell group")
+            #if os(iOS) || os(visionOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .mathdokuScreen()
+        #if os(iOS)
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        #endif
+    }
+
+    private func combinationRow(_ combo: CageCombo) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                let matches = visiblePositional.filter { $0.canonical == combo.canonical }
+                onSetNotes(matches)
+            } label: {
+                HStack(spacing: 6) {
+                    ForEach(Array(combo.digits.enumerated()), id: \.offset) { _, digit in
+                        Text("\(digit)")
+                            .font(.title3.weight(.semibold))
+                            .monospacedDigit()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(MathdokuHitButtonStyle())
+            .accessibilityLabel(combo.digits.map(String.init).joined(separator: ", "))
+            .accessibilityHint("Sets these numbers as notes and removes notes already in this group.")
+
+            Button {
+                onRemove(combo)
+            } label: {
+                Image(systemName: "minus.circle")
+                    .font(.title3)
+            }
+            .buttonStyle(MathdokuHitButtonStyle())
+            .accessibilityLabel("Remove combination")
+        }
+        .padding(.vertical, 12)
+    }
 }
 
 private struct MathdokuBoard: View {
