@@ -45,6 +45,7 @@ struct GamePlayView: View {
     @State private var showPlaySettings = false
     @State private var showCombinations = false
     @State private var dismissedCombos: [Int: [CageCombo]] = [:]
+    @State private var challengeNotices: [ChallengeNotice] = []
 
     var body: some View {
         playScreen
@@ -174,6 +175,8 @@ struct GamePlayView: View {
             .overlay {
                 if didFinish && !hideWinCard {
                     winCard
+                } else if !challengeNotices.isEmpty {
+                    challengeBanner
                 }
             }
         }
@@ -424,8 +427,12 @@ struct GamePlayView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
+                if !challengeNotices.isEmpty {
+                    ChallengeCelebrationRows(notices: challengeNotices)
+                }
                 winButton("Show Board", prominent: false) {
                     hideWinCard = true
+                    challengeNotices = []
                 }
                 if launch.isDaily {
                     winButton("Done", prominent: true) {
@@ -435,6 +442,22 @@ struct GamePlayView: View {
                     winButton("Play Again", prominent: true) {
                         loadID += 1
                     }
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: 320)
+            .glassEffect(.regular, in: .rect(cornerRadius: 28))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var challengeBanner: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+            VStack(spacing: 14) {
+                ChallengeCelebrationRows(notices: challengeNotices)
+                winButton("OK", prominent: true) {
+                    challengeNotices = []
                 }
             }
             .padding(24)
@@ -580,7 +603,10 @@ struct GamePlayView: View {
         frozenSeconds = 0
         installedID = token
         isLoading = false
+        challengeNotices = []
+        let before = stats.record
         stats.recordStart(size: generated.size)
+        collectChallengeNotices(before: before)
         finishIfNeeded()
         persistProgress()
     }
@@ -775,13 +801,19 @@ struct GamePlayView: View {
         hideWinCard = false
         frozenSeconds = elapsedSeconds()
         startedAt = nil
+        let before = stats.record
         stats.recordWin(
             seconds: frozenSeconds,
             launch: launch,
             countsForBestTime: !usedHint,
             perfect: !usedHint && !madeError
         )
+        collectChallengeNotices(before: before)
         activeGame.clear()
+    }
+
+    private func collectChallengeNotices(before: PlayerRecord) {
+        challengeNotices.append(contentsOf: ChallengeCatalog.notices(before: before, after: stats.record))
     }
 
     private func firstEmpty(in puzzle: Puzzle) -> CellIndex? {

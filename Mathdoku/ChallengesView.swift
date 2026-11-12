@@ -96,6 +96,59 @@ private struct ChallengeItem: Identifiable {
     }
 }
 
+struct ChallengeNotice: Identifiable {
+    var id: String
+    var title: String
+    var accoladeTitle: String?
+    var accoladeColor: Color?
+}
+
+struct ChallengeCelebrationRows: View {
+    let notices: [ChallengeNotice]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(notices.count == 1 ? "Challenge complete" : "Challenges complete")
+                .font(.headline)
+            noticeLines
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var noticeLines: some View {
+        if notices.count > 4 {
+            ScrollView {
+                lines
+            }
+            .frame(maxHeight: 160)
+        } else {
+            lines
+        }
+    }
+
+    private var lines: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(notices) { notice in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(notice.title)
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    if let title = notice.accoladeTitle, let color = notice.accoladeColor {
+                        Image(systemName: "medal.fill")
+                            .foregroundStyle(color)
+                            .accessibilityHidden(true)
+                        Text(title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(color)
+                    }
+                }
+            }
+        }
+    }
+}
+
 private enum Accolade: Int, CaseIterable {
     case bronze
     case silver
@@ -124,7 +177,7 @@ private enum Accolade: Int, CaseIterable {
     static let streakThresholds = [7, 30, 90, 365]
 }
 
-private enum ChallengeCatalog {
+enum ChallengeCatalog {
     /// Slowest to fastest. Platinum keeps the original time goal for 4×4, 6×6, and 9×9.
     private static let speedLimits: [Int: [Int]] = [
         3: [5 * 60, 3 * 60, 2 * 60, 60],
@@ -136,10 +189,10 @@ private enum ChallengeCatalog {
         9: [30 * 60, 20 * 60, 15 * 60, 10 * 60]
     ]
 
-    static func groups(for record: PlayerRecord) -> [ChallengeGroup] {
+    fileprivate static func groups(for record: PlayerRecord) -> [ChallengeGroup] {
         let games = [
             tiers("Play games", record.played, thresholds: Accolade.gameThresholds),
-            tiers("Complete games", record.completed, thresholds: Accolade.gameThresholds),
+            tiers("Solve games", record.completed, thresholds: Accolade.gameThresholds),
             tiers("Perfect games", record.perfect, thresholds: Accolade.gameThresholds)
         ]
         let daily = [
@@ -147,15 +200,15 @@ private enum ChallengeCatalog {
             tiers("Daily streak", record.bestStreak, thresholds: Accolade.streakThresholds)
         ]
         let boards = [
-            count("Complete a 9\u{00D7}9", record.bySize[9]?.completed ?? 0, of: 1),
+            count("Solve a 9\u{00D7}9", record.bySize[9]?.completed ?? 0, of: 1),
             count(
                 "Perfect a hard 9\u{00D7}9",
                 record.perfectByKey["9-\(Difficulty.hard.rawValue)"] ?? 0,
                 of: 1
             ),
-            sizes("Complete every size board") { (record.bySize[$0]?.completed ?? 0) > 0 },
+            sizes("Solve every size board") { (record.bySize[$0]?.completed ?? 0) > 0 },
             sizes("Perfect every size board") { (record.bySize[$0]?.perfect ?? 0) > 0 },
-            sizes("Complete every size board on hard") {
+            sizes("Solve every size board on hard") {
                 (record.completedByKey["\($0)-\(Difficulty.hard.rawValue)"] ?? 0) > 0
             },
             sizes("Perfect every size board on hard") {
@@ -177,6 +230,28 @@ private enum ChallengeCatalog {
             ChallengeGroup(title: "Boards", items: boards),
             ChallengeGroup(title: "Speed", items: speed)
         ]
+    }
+
+    static func notices(before: PlayerRecord, after: PlayerRecord) -> [ChallengeNotice] {
+        let previous = Dictionary(uniqueKeysWithValues: groups(for: before).flatMap(\.items).map { ($0.id, $0) })
+        let afterGroups = groups(for: after)
+        let ordered = afterGroups.filter { $0.title != "Overall" } + afterGroups.filter { $0.title == "Overall" }
+        return ordered.flatMap(\.items).compactMap { item in
+            let old = previous[item.id]
+            if item.usesAccolades {
+                let newRank = item.accolade?.rawValue ?? -1
+                let oldRank = old?.accolade?.rawValue ?? -1
+                guard newRank > oldRank, let accolade = item.accolade else { return nil }
+                return ChallengeNotice(
+                    id: item.id,
+                    title: item.title,
+                    accoladeTitle: accolade.title,
+                    accoladeColor: accolade.color
+                )
+            }
+            guard item.isDone, old?.isDone != true else { return nil }
+            return ChallengeNotice(id: item.id, title: item.title, accoladeTitle: nil, accoladeColor: nil)
+        }
     }
 
     private static func collection(_ title: String, _ items: [ChallengeItem]) -> ChallengeItem {
@@ -224,7 +299,7 @@ private enum ChallengeCatalog {
     private static func speed(size: Int, record: PlayerRecord) -> ChallengeItem {
         let limits = speedLimits[size] ?? []
         let platinum = limits.last ?? 0
-        let title = "Complete a \(size)\u{00D7}\(size) in under \(clock(platinum))"
+        let title = "Solve a \(size)\u{00D7}\(size) in under \(clock(platinum))"
         guard let best = record.fastestFinish[size] else {
             return ChallengeItem(
                 title: title,
