@@ -361,12 +361,28 @@ nonisolated enum MathdokuRules {
 
     /// Combinations that fit this group and the numbers already entered, including a wrong digit.
     /// The solution is not consulted.
-    static func combinations(cage: Cage, entries: [[Int?]], size: Int) -> [CageCombo] {
+    /// Pass nil for `operations` to use only this group's own operation.
+    /// When the symbol is hidden, pass every operation the rules allow for this cell count.
+    /// The list is their union, so it does not reveal which operation the group uses.
+    static func combinations(
+        cage: Cage,
+        entries: [[Int?]],
+        size: Int,
+        operations: [CageOperation]? = nil
+    ) -> [CageCombo] {
         let cells = orderedCells(cage.cells)
         let length = cells.count
         guard length > 0, entries.count == size, entries.allSatisfy({ $0.count == size }) else { return [] }
         guard cells.allSatisfy({ $0.row >= 0 && $0.column >= 0 && $0.row < size && $0.column < size }) else {
             return []
+        }
+
+        let tried: [CageOperation?]
+        if let operations {
+            guard !operations.isEmpty else { return [] }
+            tried = operations.map { Optional($0) }
+        } else {
+            tried = [cage.operation]
         }
 
         var pins = [Int?](repeating: nil, count: length)
@@ -392,11 +408,15 @@ nonisolated enum MathdokuRules {
 
         var values = [Int](repeating: 0, count: length)
         var found: [CageCombo] = []
+        var seen = Set<CageCombo>()
 
-        func walk(_ index: Int, sum: Int, product: Int) {
+        func walk(_ index: Int, sum: Int, product: Int, operation: CageOperation?) {
             if index == length {
-                if isSatisfied(values: values, operation: cage.operation, target: cage.target) {
-                    found.append(CageCombo(digits: values))
+                if isSatisfied(values: values, operation: operation, target: cage.target) {
+                    let combo = CageCombo(digits: values)
+                    if seen.insert(combo).inserted {
+                        found.append(combo)
+                    }
                 }
                 return
             }
@@ -408,12 +428,12 @@ nonisolated enum MathdokuRules {
                 if rowUsed[cell.row] & bit != 0 || columnUsed[cell.column] & bit != 0 {
                     continue
                 }
-                if cage.operation == .add {
+                if operation == .add {
                     let next = sum + value
                     if next > cage.target || next + remain > cage.target || next + remain * size < cage.target {
                         continue
                     }
-                } else if cage.operation == .multiply {
+                } else if operation == .multiply {
                     let next = product * value
                     if next > cage.target || (cage.target % next) != 0 {
                         continue
@@ -424,15 +444,18 @@ nonisolated enum MathdokuRules {
                 columnUsed[cell.column] |= bit
                 walk(
                     index + 1,
-                    sum: cage.operation == .add ? sum + value : sum,
-                    product: cage.operation == .multiply ? product * value : product
+                    sum: operation == .add ? sum + value : sum,
+                    product: operation == .multiply ? product * value : product,
+                    operation: operation
                 )
                 rowUsed[cell.row] &= ~bit
                 columnUsed[cell.column] &= ~bit
             }
         }
 
-        walk(0, sum: 0, product: 1)
+        for operation in tried {
+            walk(0, sum: 0, product: 1, operation: operation)
+        }
         return found
     }
 

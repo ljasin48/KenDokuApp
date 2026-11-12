@@ -53,18 +53,12 @@ struct ChallengesView: View {
         .accessibilityValue(item.accessibilityValue)
     }
 
-    @ViewBuilder
     private func accoladeMark(_ item: ChallengeItem) -> some View {
-        if item.usesAccolades {
-            Image(systemName: item.accolade == nil ? "medal" : "medal.fill")
-                .font(.title3)
-                .foregroundStyle(item.accolade?.color ?? Color.secondary)
-                .accessibilityHidden(true)
-        } else if item.isDone {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(theme.accent)
-                .accessibilityHidden(true)
-        }
+        let accolade = item.accolade ?? (item.isDone ? Accolade.platinum : nil)
+        return Image(systemName: accolade == nil ? "medal" : "medal.fill")
+            .font(.title3)
+            .foregroundStyle(accolade?.color ?? Color.secondary)
+            .accessibilityHidden(true)
     }
 }
 
@@ -82,6 +76,8 @@ private struct ChallengeItem: Identifiable {
     var isDone: Bool
     var usesAccolades = false
     var accolade: Accolade?
+    /// Shown with the medal on a completion notice. Speed rows use the earned limit, such as "4 minutes".
+    var noticeDetail: String? = nil
 
     var id: String { title }
 
@@ -90,7 +86,7 @@ private struct ChallengeItem: Identifiable {
             return "\(accolade.title). \(status)"
         }
         if isDone {
-            return "Complete. \(status)"
+            return "\(Accolade.platinum.title). \(status)"
         }
         return status
     }
@@ -215,19 +211,40 @@ enum ChallengeCatalog {
                 (record.perfectByKey["\($0)-\(Difficulty.hard.rawValue)"] ?? 0) > 0
             }
         ]
+        let noOp = [
+            tiers("Play no-op games", record.noOpPlayed, thresholds: Accolade.gameThresholds),
+            tiers("Solve no-op games", record.noOpCompleted, thresholds: Accolade.gameThresholds),
+            tiers("Perfect no-op games", record.noOpPerfect, thresholds: Accolade.gameThresholds),
+            count("Solve a no-op 9\u{00D7}9", record.noOpBySize[9]?.completed ?? 0, of: 1),
+            count(
+                "Perfect a hard no-op 9\u{00D7}9",
+                record.noOpPerfectByKey["9-\(Difficulty.hard.rawValue)"] ?? 0,
+                of: 1
+            ),
+            sizes("Solve every size board in no-op") { (record.noOpBySize[$0]?.completed ?? 0) > 0 },
+            sizes("Perfect every size board in no-op") { (record.noOpBySize[$0]?.perfect ?? 0) > 0 },
+            sizes("Solve every size board on hard in no-op") {
+                (record.noOpCompletedByKey["\($0)-\(Difficulty.hard.rawValue)"] ?? 0) > 0
+            },
+            sizes("Perfect every size board on hard in no-op") {
+                (record.noOpPerfectByKey["\($0)-\(Difficulty.hard.rawValue)"] ?? 0) > 0
+            }
+        ]
         let speed = GameLaunch.sizes.map { speed(size: $0, record: record) }
-        let sections = [games, daily, boards, speed]
+        let sections = [games, daily, boards, noOp, speed]
         return [
             ChallengeGroup(title: "Overall", items: [
                 collection("Complete all game challenges", games),
                 collection("Complete all daily challenges", daily),
                 collection("Complete all board challenges", boards),
+                collection("Complete all no-op challenges", noOp),
                 collection("Complete all speed challenges", speed),
                 collection("Complete all challenges", sections.flatMap { $0 })
             ]),
             ChallengeGroup(title: "Games", items: games),
             ChallengeGroup(title: "Daily", items: daily),
             ChallengeGroup(title: "Boards", items: boards),
+            ChallengeGroup(title: "No-op", items: noOp),
             ChallengeGroup(title: "Speed", items: speed)
         ]
     }
@@ -242,15 +259,21 @@ enum ChallengeCatalog {
                 let newRank = item.accolade?.rawValue ?? -1
                 let oldRank = old?.accolade?.rawValue ?? -1
                 guard newRank > oldRank, let accolade = item.accolade else { return nil }
+                let medal = item.noticeDetail.map { "\(accolade.title), \($0)" } ?? accolade.title
                 return ChallengeNotice(
                     id: item.id,
                     title: item.title,
-                    accoladeTitle: accolade.title,
+                    accoladeTitle: medal,
                     accoladeColor: accolade.color
                 )
             }
             guard item.isDone, old?.isDone != true else { return nil }
-            return ChallengeNotice(id: item.id, title: item.title, accoladeTitle: nil, accoladeColor: nil)
+            return ChallengeNotice(
+                id: item.id,
+                title: item.title,
+                accoladeTitle: Accolade.platinum.title,
+                accoladeColor: Accolade.platinum.color
+            )
         }
     }
 
@@ -298,8 +321,8 @@ enum ChallengeCatalog {
 
     private static func speed(size: Int, record: PlayerRecord) -> ChallengeItem {
         let limits = speedLimits[size] ?? []
-        let platinum = limits.last ?? 0
-        let title = "Solve a \(size)\u{00D7}\(size) in under \(clock(platinum))"
+        let minutes = limits.map { $0 / 60 }
+        let title = speedTitle(size: size, minutes: minutes)
         guard let best = record.fastestFinish[size] else {
             return ChallengeItem(
                 title: title,
@@ -333,8 +356,28 @@ enum ChallengeCatalog {
             status: clock(best),
             isDone: done,
             usesAccolades: true,
-            accolade: accolade
+            accolade: accolade,
+            noticeDetail: earnedIndex.map { minutePhrase(minutes[$0]) }
         )
+    }
+
+    private static func speedTitle(size: Int, minutes: [Int]) -> String {
+        let numbers = minutes.map(String.init)
+        let list: String
+        if numbers.count > 1, let last = numbers.last {
+            list = numbers.dropLast().joined(separator: ", ") + ", and " + last
+        } else {
+            list = numbers.joined(separator: ", ")
+        }
+        return "Solve a \(size)\u{00D7}\(size) in under \(list) \(minuteWord(minutes.last ?? 0))"
+    }
+
+    private static func minutePhrase(_ minutes: Int) -> String {
+        "\(minutes) \(minuteWord(minutes))"
+    }
+
+    private static func minuteWord(_ minutes: Int) -> String {
+        minutes == 1 ? "minute" : "minutes"
     }
 
     private static func clock(_ seconds: Int) -> String {

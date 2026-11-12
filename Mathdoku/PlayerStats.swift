@@ -32,6 +32,13 @@ struct PlayerRecord: Codable, Equatable {
     var perfectByKey: [String: Int] = [:]
     /// Finishes keyed by "\(size)-\(difficulty.rawValue)", including imperfect ones.
     var completedByKey: [String: Int] = [:]
+    /// No-op is a subset of the counts above. A hidden-operation game still counts as a normal game.
+    var noOpPlayed = 0
+    var noOpCompleted = 0
+    var noOpPerfect = 0
+    var noOpBySize: [Int: SizeStats] = [:]
+    var noOpPerfectByKey: [String: Int] = [:]
+    var noOpCompletedByKey: [String: Int] = [:]
 
     init() {}
 
@@ -55,6 +62,12 @@ struct PlayerRecord: Codable, Equatable {
         }
         perfectByKey = try container.decodeIfPresent([String: Int].self, forKey: .perfectByKey) ?? [:]
         completedByKey = try container.decodeIfPresent([String: Int].self, forKey: .completedByKey) ?? [:]
+        noOpPlayed = try container.decodeIfPresent(Int.self, forKey: .noOpPlayed) ?? 0
+        noOpCompleted = try container.decodeIfPresent(Int.self, forKey: .noOpCompleted) ?? 0
+        noOpPerfect = try container.decodeIfPresent(Int.self, forKey: .noOpPerfect) ?? 0
+        noOpBySize = try container.decodeIfPresent([Int: SizeStats].self, forKey: .noOpBySize) ?? [:]
+        noOpPerfectByKey = try container.decodeIfPresent([String: Int].self, forKey: .noOpPerfectByKey) ?? [:]
+        noOpCompletedByKey = try container.decodeIfPresent([String: Int].self, forKey: .noOpCompletedByKey) ?? [:]
     }
 
     /// Older stats files stored hint-free best times only. Use the fastest of those per size until a new finish is recorded.
@@ -87,11 +100,18 @@ struct PlayerRecord: Codable, Equatable {
         try container.encode(fastestFinish, forKey: .fastestFinish)
         try container.encode(perfectByKey, forKey: .perfectByKey)
         try container.encode(completedByKey, forKey: .completedByKey)
+        try container.encode(noOpPlayed, forKey: .noOpPlayed)
+        try container.encode(noOpCompleted, forKey: .noOpCompleted)
+        try container.encode(noOpPerfect, forKey: .noOpPerfect)
+        try container.encode(noOpBySize, forKey: .noOpBySize)
+        try container.encode(noOpPerfectByKey, forKey: .noOpPerfectByKey)
+        try container.encode(noOpCompletedByKey, forKey: .noOpCompletedByKey)
     }
 
     private enum CodingKeys: String, CodingKey {
         case solved, dailySolved, currentStreak, bestStreak, lastDailyDay, bestDailySeconds, bestSeconds
         case played, completed, perfect, bySize, fastestFinish, perfectByKey, completedByKey
+        case noOpPlayed, noOpCompleted, noOpPerfect, noOpBySize, noOpPerfectByKey, noOpCompletedByKey
     }
 }
 
@@ -116,14 +136,18 @@ final class PlayerStats {
         }
     }
 
-    func recordStart(size: Int) {
+    func recordStart(size: Int, hidesOperators: Bool) {
         var next = record
         next.played += 1
         next.bySize[size, default: SizeStats()].played += 1
+        if hidesOperators {
+            next.noOpPlayed += 1
+            next.noOpBySize[size, default: SizeStats()].played += 1
+        }
         store(next)
     }
 
-    func recordWin(seconds: Int, launch: GameLaunch, countsForBestTime: Bool, perfect: Bool) {
+    func recordWin(seconds: Int, launch: GameLaunch, countsForBestTime: Bool, perfect: Bool, hidesOperators: Bool) {
         var next = record
         next.solved += 1
         next.completed += 1
@@ -134,6 +158,16 @@ final class PlayerStats {
             next.perfect += 1
             next.bySize[launch.size, default: SizeStats()].perfect += 1
             next.perfectByKey[launchKey, default: 0] += 1
+        }
+        if hidesOperators {
+            next.noOpCompleted += 1
+            next.noOpBySize[launch.size, default: SizeStats()].completed += 1
+            next.noOpCompletedByKey[launchKey, default: 0] += 1
+            if perfect {
+                next.noOpPerfect += 1
+                next.noOpBySize[launch.size, default: SizeStats()].perfect += 1
+                next.noOpPerfectByKey[launchKey, default: 0] += 1
+            }
         }
 
         if let fastest = next.fastestFinish[launch.size] {

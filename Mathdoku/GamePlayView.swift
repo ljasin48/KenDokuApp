@@ -605,7 +605,7 @@ struct GamePlayView: View {
         isLoading = false
         challengeNotices = []
         let before = stats.record
-        stats.recordStart(size: generated.size)
+        stats.recordStart(size: generated.size, hidesOperators: generated.rules.hidesOperators)
         collectChallengeNotices(before: before)
         finishIfNeeded()
         persistProgress()
@@ -806,7 +806,8 @@ struct GamePlayView: View {
             seconds: frozenSeconds,
             launch: launch,
             countsForBestTime: !usedHint,
-            perfect: !usedHint && !madeError
+            perfect: !usedHint && !madeError,
+            hidesOperators: puzzle.rules.hidesOperators
         )
         collectChallengeNotices(before: before)
         activeGame.clear()
@@ -903,6 +904,7 @@ struct GamePlayView: View {
                 entries: entries,
                 size: cage.cells.isEmpty ? 0 : (puzzle?.size ?? 0),
                 hidesOperators: puzzle?.rules.hidesOperators ?? false,
+                rules: puzzle?.rules ?? .standard,
                 dismissed: dismissedCombos[cage.id] ?? [],
                 onRemove: { combo in dismissCombo(combo, cageID: cage.id) },
                 onReset: { resetCombos(cageID: cage.id) },
@@ -1038,6 +1040,7 @@ private struct CellGroupSheet: View {
     let entries: [[Int?]]
     let size: Int
     let hidesOperators: Bool
+    let rules: OperatorRules
     let dismissed: [CageCombo]
     let onRemove: (CageCombo) -> Void
     let onReset: () -> Void
@@ -1046,7 +1049,13 @@ private struct CellGroupSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private var positional: [CageCombo] {
-        MathdokuRules.combinations(cage: cage, entries: entries, size: size)
+        let operations = hidesOperators ? rules.operations(forCellCount: cage.cells.count) : nil
+        return MathdokuRules.combinations(
+            cage: cage,
+            entries: entries,
+            size: size,
+            operations: operations
+        )
     }
 
     private var possible: [CageCombo] {
@@ -1080,7 +1089,9 @@ private struct CellGroupSheet: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(cage.clue(hidingOperation: hidesOperators))
                         .font(.title2.weight(.semibold))
-                    Text("All possible combinations that satisfy the arithmetic. Tap a row to set those numbers as notes. Notes already in this group are removed.")
+                    Text(hidesOperators
+                         ? "All possible combinations that can make this target. Tap a row to set those numbers as notes. Notes already in this group are removed."
+                         : "All possible combinations that satisfy the arithmetic. Tap a row to set those numbers as notes. Notes already in this group are removed.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
