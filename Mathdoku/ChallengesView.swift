@@ -317,9 +317,8 @@ enum ChallengeCatalog {
         let goal = thresholds[nextIndex ?? thresholds.count - 1]
         let done = nextIndex == nil
         let earned = earnedIndex >= 0 ? thresholds[earnedIndex] : nil
-        let shown = earned ?? goal
         return ChallengeItem(
-            title: title?(shown) ?? id,
+            title: title?(goal) ?? id,
             fraction: done ? 1 : min(1, Double(max(current, 0)) / Double(goal)),
             status: "\(min(max(current, 0), goal)) of \(goal)",
             isDone: done,
