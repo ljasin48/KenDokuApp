@@ -46,6 +46,7 @@ struct GamePlayView: View {
     @State private var showCombinations = false
     @State private var dismissedCombos: [Int: [CageCombo]] = [:]
     @State private var challengeNotices: [ChallengeNotice] = []
+    @State private var countedAsPlayed = false
 
     var body: some View {
         playScreen
@@ -576,6 +577,7 @@ struct GamePlayView: View {
         didFinish = false
         usedHint = saved.usedHint
         madeError = saved.madeError
+        countedAsPlayed = saved.countedAsPlayed
         hideWinCard = false
         bankedSeconds = max(0, saved.elapsedSeconds)
         startedAt = .now
@@ -604,9 +606,7 @@ struct GamePlayView: View {
         installedID = token
         isLoading = false
         challengeNotices = []
-        let before = stats.record
-        stats.recordStart(size: generated.size, hidesOperators: generated.rules.hidesOperators)
-        collectChallengeNotices(before: before)
+        countedAsPlayed = false
         finishIfNeeded()
         persistProgress()
     }
@@ -670,7 +670,8 @@ struct GamePlayView: View {
             usedHint: usedHint,
             madeError: madeError,
             elapsedSeconds: elapsedSeconds(),
-            dismissedCombos: dismissedCombos
+            dismissedCombos: dismissedCombos,
+            countedAsPlayed: countedAsPlayed
         )
         activeGame.save(saved)
     }
@@ -712,6 +713,7 @@ struct GamePlayView: View {
             cellNotes.remove(value)
             notes[change.row][change.column] = cellNotes
         }
+        markPlayedIfNeeded()
         finishIfNeeded()
     }
 
@@ -744,6 +746,7 @@ struct GamePlayView: View {
             cellNotes.remove(number)
         } else {
             cellNotes.insert(number)
+            markPlayedIfNeeded()
         }
         undoStack.append(Move(row: cell.row, column: cell.column, value: nil, notes: previous))
         notes[cell.row][cell.column] = cellNotes
@@ -975,9 +978,21 @@ struct GamePlayView: View {
                 clearedNotes: rest
             )
         )
+        if planned.contains(where: { !$0.1.isEmpty }) {
+            markPlayedIfNeeded()
+        }
         for (cell, digits) in planned {
             notes[cell.row][cell.column] = digits
         }
+    }
+
+    /// A game counts as played once the player enters a number or a note.
+    private func markPlayedIfNeeded() {
+        guard !countedAsPlayed, let puzzle else { return }
+        countedAsPlayed = true
+        let before = stats.record
+        stats.recordStart(size: puzzle.size, hidesOperators: puzzle.rules.hidesOperators)
+        collectChallengeNotices(before: before)
     }
 
     private func validDismissal(_ dismissal: SavedComboDismissal?, puzzle: Puzzle) -> SavedComboDismissal? {

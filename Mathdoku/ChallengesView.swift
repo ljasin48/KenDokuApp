@@ -76,10 +76,12 @@ private struct ChallengeItem: Identifiable {
     var isDone: Bool
     var usesAccolades = false
     var accolade: Accolade?
-    /// Shown with the medal on a completion notice. Speed rows use the earned limit, such as "4 minutes".
-    var noticeDetail: String? = nil
+    /// Stable identity when the visible title changes with the current goal.
+    var key: String? = nil
+    /// Notice text when it differs from the row. Speed uses only the earned limit.
+    var noticeTitle: String? = nil
 
-    var id: String { title }
+    var id: String { key ?? title }
 
     var accessibilityValue: String {
         if let accolade {
@@ -187,13 +189,23 @@ enum ChallengeCatalog {
 
     fileprivate static func groups(for record: PlayerRecord) -> [ChallengeGroup] {
         let games = [
-            tiers("Play games", record.played, thresholds: Accolade.gameThresholds),
-            tiers("Solve games", record.completed, thresholds: Accolade.gameThresholds),
-            tiers("Perfect games", record.perfect, thresholds: Accolade.gameThresholds)
+            tiers("Play games", record.played, thresholds: Accolade.gameThresholds) { count in
+                "Play \(count) \(count == 1 ? "game" : "games")"
+            },
+            tiers("Solve games", record.completed, thresholds: Accolade.gameThresholds) { count in
+                "Solve \(count) \(count == 1 ? "game" : "games")"
+            },
+            tiers("Perfect games", record.perfect, thresholds: Accolade.gameThresholds) { count in
+                "Perfect \(count) \(count == 1 ? "game" : "games")"
+            }
         ]
         let daily = [
-            tiers("Solve daily puzzles", record.dailySolved, thresholds: Accolade.streakThresholds),
-            tiers("Daily streak", record.bestStreak, thresholds: Accolade.streakThresholds)
+            tiers("Solve daily puzzles", record.dailySolved, thresholds: Accolade.streakThresholds) { count in
+                "Solve \(count) daily \(count == 1 ? "puzzle" : "puzzles")"
+            },
+            tiers("Daily streak", record.bestStreak, thresholds: Accolade.streakThresholds) { count in
+                "Daily streak of \(count)"
+            }
         ]
         let boards = [
             count("Solve a 9\u{00D7}9", record.bySize[9]?.completed ?? 0, of: 1),
@@ -212,9 +224,15 @@ enum ChallengeCatalog {
             }
         ]
         let noOp = [
-            tiers("Play no-op games", record.noOpPlayed, thresholds: Accolade.gameThresholds),
-            tiers("Solve no-op games", record.noOpCompleted, thresholds: Accolade.gameThresholds),
-            tiers("Perfect no-op games", record.noOpPerfect, thresholds: Accolade.gameThresholds),
+            tiers("Play no-op games", record.noOpPlayed, thresholds: Accolade.gameThresholds) { count in
+                "Play \(count) no-op \(count == 1 ? "game" : "games")"
+            },
+            tiers("Solve no-op games", record.noOpCompleted, thresholds: Accolade.gameThresholds) { count in
+                "Solve \(count) no-op \(count == 1 ? "game" : "games")"
+            },
+            tiers("Perfect no-op games", record.noOpPerfect, thresholds: Accolade.gameThresholds) { count in
+                "Perfect \(count) no-op \(count == 1 ? "game" : "games")"
+            },
             count("Solve a no-op 9\u{00D7}9", record.noOpBySize[9]?.completed ?? 0, of: 1),
             count(
                 "Perfect a hard no-op 9\u{00D7}9",
@@ -259,11 +277,10 @@ enum ChallengeCatalog {
                 let newRank = item.accolade?.rawValue ?? -1
                 let oldRank = old?.accolade?.rawValue ?? -1
                 guard newRank > oldRank, let accolade = item.accolade else { return nil }
-                let medal = item.noticeDetail.map { "\(accolade.title), \($0)" } ?? accolade.title
                 return ChallengeNotice(
                     id: item.id,
-                    title: item.title,
-                    accoladeTitle: medal,
+                    title: item.noticeTitle ?? item.title,
+                    accoladeTitle: accolade.title,
                     accoladeColor: accolade.color
                 )
             }
@@ -288,19 +305,28 @@ enum ChallengeCatalog {
         )
     }
 
-    private static func tiers(_ title: String, _ current: Int, thresholds: [Int]) -> ChallengeItem {
+    private static func tiers(
+        _ id: String,
+        _ current: Int,
+        thresholds: [Int],
+        title: ((Int) -> String)? = nil
+    ) -> ChallengeItem {
         let nextIndex = thresholds.firstIndex { current < $0 }
         let earnedIndex = (nextIndex ?? thresholds.count) - 1
         let accolade = earnedIndex >= 0 ? Accolade.allCases[earnedIndex] : nil
         let goal = thresholds[nextIndex ?? thresholds.count - 1]
         let done = nextIndex == nil
+        let earned = earnedIndex >= 0 ? thresholds[earnedIndex] : nil
+        let shown = earned ?? goal
         return ChallengeItem(
-            title: title,
+            title: title?(shown) ?? id,
             fraction: done ? 1 : min(1, Double(max(current, 0)) / Double(goal)),
             status: "\(min(max(current, 0), goal)) of \(goal)",
             isDone: done,
             usesAccolades: true,
-            accolade: accolade
+            accolade: accolade,
+            key: title == nil ? nil : id,
+            noticeTitle: earned.flatMap { title?($0) }
         )
     }
 
@@ -357,7 +383,9 @@ enum ChallengeCatalog {
             isDone: done,
             usesAccolades: true,
             accolade: accolade,
-            noticeDetail: earnedIndex.map { minutePhrase(minutes[$0]) }
+            noticeTitle: earnedIndex.map {
+                "Solve a \(size)\u{00D7}\(size) in under \(minutePhrase(minutes[$0]))"
+            }
         )
     }
 
