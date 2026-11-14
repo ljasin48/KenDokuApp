@@ -20,7 +20,8 @@ struct StatisticsView: View {
                     rows: [
                         ("Played", "\(stats.record.played)"),
                         ("Solved", countPercent(stats.record.completed, of: stats.record.played)),
-                        ("Perfected", countPercent(stats.record.perfect, of: stats.record.played))
+                        ("Perfected", countPercent(stats.record.perfect, of: stats.record.played)),
+                        ("Time played", duration(stats.record.playSeconds))
                     ]
                 )
 
@@ -51,7 +52,7 @@ struct StatisticsView: View {
 
                 sizeGroup(selectedSize)
 
-                Text("A perfect game is solved with no hints or wrong numbers. The streak counts daily puzzles solved on consecutive days. Best times only count if no hints are used.")
+                Text("A perfect game is solved with no hints or wrong numbers. The streak counts daily puzzles solved on consecutive days. Best times only count if no hints are used. Time played is the time spent on puzzles.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -139,6 +140,17 @@ struct StatisticsView: View {
     private func clock(_ seconds: Int) -> String {
         let clamped = max(0, seconds)
         return String(format: "%d:%02d", clamped / 60, clamped % 60)
+    }
+
+    private func duration(_ seconds: Int) -> String {
+        let clamped = max(0, seconds)
+        let hours = clamped / 3600
+        let minutes = (clamped % 3600) / 60
+        let secs = clamped % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, secs)
+        }
+        return String(format: "%d:%02d", minutes, secs)
     }
 }
 

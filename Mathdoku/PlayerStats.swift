@@ -39,6 +39,8 @@ struct PlayerRecord: Codable, Equatable {
     var noOpBySize: [Int: SizeStats] = [:]
     var noOpPerfectByKey: [String: Int] = [:]
     var noOpCompletedByKey: [String: Int] = [:]
+    /// Seconds spent on puzzle timers. This does not include time elsewhere in the app.
+    var playSeconds = 0
 
     init() {}
 
@@ -68,6 +70,7 @@ struct PlayerRecord: Codable, Equatable {
         noOpBySize = try container.decodeIfPresent([Int: SizeStats].self, forKey: .noOpBySize) ?? [:]
         noOpPerfectByKey = try container.decodeIfPresent([String: Int].self, forKey: .noOpPerfectByKey) ?? [:]
         noOpCompletedByKey = try container.decodeIfPresent([String: Int].self, forKey: .noOpCompletedByKey) ?? [:]
+        playSeconds = try container.decodeIfPresent(Int.self, forKey: .playSeconds) ?? 0
     }
 
     /// Older stats files stored hint-free best times only. Use the fastest of those per size until a new finish is recorded.
@@ -106,12 +109,14 @@ struct PlayerRecord: Codable, Equatable {
         try container.encode(noOpBySize, forKey: .noOpBySize)
         try container.encode(noOpPerfectByKey, forKey: .noOpPerfectByKey)
         try container.encode(noOpCompletedByKey, forKey: .noOpCompletedByKey)
+        try container.encode(playSeconds, forKey: .playSeconds)
     }
 
     private enum CodingKeys: String, CodingKey {
         case solved, dailySolved, currentStreak, bestStreak, lastDailyDay, bestDailySeconds, bestSeconds
         case played, completed, perfect, bySize, fastestFinish, perfectByKey, completedByKey
         case noOpPlayed, noOpCompleted, noOpPerfect, noOpBySize, noOpPerfectByKey, noOpCompletedByKey
+        case playSeconds
     }
 }
 
@@ -144,6 +149,14 @@ final class PlayerStats {
             next.noOpPlayed += 1
             next.noOpBySize[size, default: SizeStats()].played += 1
         }
+        store(next)
+    }
+
+    /// Adds puzzle-timer seconds. The caller passes only the portion not already recorded.
+    func recordPlayTime(_ seconds: Int) {
+        guard seconds > 0 else { return }
+        var next = record
+        next.playSeconds += seconds
         store(next)
     }
 

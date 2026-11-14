@@ -47,6 +47,7 @@ struct GamePlayView: View {
     @State private var dismissedCombos: [Int: [CageCombo]] = [:]
     @State private var challengeNotices: [ChallengeNotice] = []
     @State private var countedAsPlayed = false
+    @State private var creditedSeconds = 0
 
     var body: some View {
         playScreen
@@ -417,6 +418,8 @@ struct GamePlayView: View {
     private var winCard: some View {
         ZStack {
             Color.black.opacity(0.35)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: closeWinCard)
             VStack(spacing: 14) {
                 Text("Solved")
                     .font(.system(size: 36, weight: .bold, design: .rounded))
@@ -431,15 +434,10 @@ struct GamePlayView: View {
                 if !challengeNotices.isEmpty {
                     ChallengeCelebrationRows(notices: challengeNotices)
                 }
-                winButton("Show Board", prominent: false) {
-                    hideWinCard = true
-                    challengeNotices = []
+                winButton("Home", prominent: launch.isDaily) {
+                    dismiss()
                 }
-                if launch.isDaily {
-                    winButton("Done", prominent: true) {
-                        dismiss()
-                    }
-                } else {
+                if !launch.isDaily {
                     winButton("Play Again", prominent: true) {
                         loadID += 1
                     }
@@ -447,9 +445,26 @@ struct GamePlayView: View {
             }
             .padding(24)
             .frame(maxWidth: 320)
+            .overlay(alignment: .topTrailing) {
+                Button(action: closeWinCard) {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(MathdokuHitButtonStyle())
+                .accessibilityLabel("Close")
+                .padding(8)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
             .glassEffect(.regular, in: .rect(cornerRadius: 28))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func closeWinCard() {
+        hideWinCard = true
+        challengeNotices = []
     }
 
     private var challengeBanner: some View {
@@ -578,6 +593,7 @@ struct GamePlayView: View {
         usedHint = saved.usedHint
         madeError = saved.madeError
         countedAsPlayed = saved.countedAsPlayed
+        creditedSeconds = max(0, saved.creditedSeconds)
         hideWinCard = false
         bankedSeconds = max(0, saved.elapsedSeconds)
         startedAt = .now
@@ -588,6 +604,8 @@ struct GamePlayView: View {
     }
 
     private func install(_ generated: Puzzle, token: Int) {
+        creditPlayTime()
+        creditedSeconds = 0
         puzzle = generated
         entries = generated.startingEntries()
         notes = Self.blankNotes(size: generated.size)
@@ -607,6 +625,7 @@ struct GamePlayView: View {
         isLoading = false
         challengeNotices = []
         countedAsPlayed = false
+        creditedSeconds = 0
         finishIfNeeded()
         persistProgress()
     }
@@ -645,6 +664,7 @@ struct GamePlayView: View {
 
     private func persistProgress() {
         guard !didFinish, !isLoading, let puzzle else { return }
+        creditPlayTime()
         let saved = SavedGame(
             size: launch.size,
             difficulty: launch.difficulty,
@@ -671,7 +691,8 @@ struct GamePlayView: View {
             madeError: madeError,
             elapsedSeconds: elapsedSeconds(),
             dismissedCombos: dismissedCombos,
-            countedAsPlayed: countedAsPlayed
+            countedAsPlayed: countedAsPlayed,
+            creditedSeconds: creditedSeconds
         )
         activeGame.save(saved)
     }
@@ -803,6 +824,7 @@ struct GamePlayView: View {
         showCombinations = false
         hideWinCard = false
         frozenSeconds = elapsedSeconds()
+        creditPlayTime()
         startedAt = nil
         let before = stats.record
         stats.recordWin(
@@ -878,9 +900,11 @@ struct GamePlayView: View {
         usedHint = false
         madeError = false
         hideWinCard = false
+        creditPlayTime()
         bankedSeconds = 0
         startedAt = .now
         frozenSeconds = 0
+        creditedSeconds = 0
         selection = firstEmpty(in: puzzle) ?? CellIndex(row: 0, column: 0)
     }
 
@@ -984,6 +1008,15 @@ struct GamePlayView: View {
         for (cell, digits) in planned {
             notes[cell.row][cell.column] = digits
         }
+    }
+
+    /// Adds newly elapsed puzzle time to the lifetime total. Pausing and resuming do not add it again.
+    private func creditPlayTime() {
+        let elapsed = max(0, elapsedSeconds())
+        let delta = elapsed - creditedSeconds
+        guard delta > 0 else { return }
+        creditedSeconds = elapsed
+        stats.recordPlayTime(delta)
     }
 
     /// A game counts as played once the player enters a number or a note.

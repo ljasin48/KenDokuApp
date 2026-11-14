@@ -100,6 +100,8 @@ struct SavedGame: Codable {
     var dismissedCombos: [Int: [CageCombo]]
     /// True after the player enters a number or note. Opening the puzzle does not count.
     var countedAsPlayed: Bool
+    /// Puzzle-timer seconds already added to the lifetime total.
+    var creditedSeconds: Int
 
     init(
         size: Int,
@@ -117,7 +119,8 @@ struct SavedGame: Codable {
         madeError: Bool = false,
         elapsedSeconds: Int,
         dismissedCombos: [Int: [CageCombo]] = [:],
-        countedAsPlayed: Bool = false
+        countedAsPlayed: Bool = false,
+        creditedSeconds: Int = 0
     ) {
         self.size = size
         self.difficulty = difficulty
@@ -135,6 +138,7 @@ struct SavedGame: Codable {
         self.elapsedSeconds = elapsedSeconds
         self.dismissedCombos = dismissedCombos
         self.countedAsPlayed = countedAsPlayed
+        self.creditedSeconds = creditedSeconds
     }
 
     init(from decoder: Decoder) throws {
@@ -155,6 +159,7 @@ struct SavedGame: Codable {
         elapsedSeconds = try container.decode(Int.self, forKey: .elapsedSeconds)
         dismissedCombos = try container.decodeIfPresent([Int: [CageCombo]].self, forKey: .dismissedCombos) ?? [:]
         countedAsPlayed = try container.decodeIfPresent(Bool.self, forKey: .countedAsPlayed) ?? true
+        creditedSeconds = try container.decodeIfPresent(Int.self, forKey: .creditedSeconds) ?? 0
     }
 
     func encode(to encoder: Encoder) throws {
@@ -175,11 +180,12 @@ struct SavedGame: Codable {
         try container.encode(elapsedSeconds, forKey: .elapsedSeconds)
         try container.encode(dismissedCombos, forKey: .dismissedCombos)
         try container.encode(countedAsPlayed, forKey: .countedAsPlayed)
+        try container.encode(creditedSeconds, forKey: .creditedSeconds)
     }
 
     private enum CodingKeys: String, CodingKey {
         case size, difficulty, seed, isDaily, id, puzzle, entries, notes, selection, undo
-        case notesMode, usedHint, madeError, elapsedSeconds, dismissedCombos, countedAsPlayed
+        case notesMode, usedHint, madeError, elapsedSeconds, dismissedCombos, countedAsPlayed, creditedSeconds
     }
 
     var launch: GameLaunch {
